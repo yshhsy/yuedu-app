@@ -121,7 +121,7 @@ button { font-family:inherit; border:none; background:none; cursor:pointer; colo
   overflow:hidden;
 }
 #reader-content {
-  width:100%; padding:0 22px;
+  width:100%; padding:7vh 22px 9vh;
   font-size:var(--rd-fs); line-height:var(--rd-lh); font-family:var(--rd-font);
   transform:translateY(0); will-change:transform;
   transition:transform .26s cubic-bezier(.25,.7,.3,1);
