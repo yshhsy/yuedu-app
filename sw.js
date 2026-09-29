@@ -1,17 +1,17 @@
 /* Service Worker — 应用外壳缓存（离线可用） */
 'use strict';
 
-const CACHE = 'yuedu-v2';
+const CACHE = 'yuedu-v3';
 const SHELL = [
   './',
   './index.html',
-  './css/style.css',
-  './js/db.js',
-  './js/parser.js',
-  './js/engine.js',
-  './js/library.js',
-  './js/reader.js',
-  './js/app.js',
+  './css/style.css?v=2',
+  './js/db.js?v=2',
+  './js/parser.js?v=2',
+  './js/engine.js?v=2',
+  './js/library.js?v=2',
+  './js/reader.js?v=2',
+  './js/app.js?v=2',
   './lib/jszip.min.js',
   './manifest.webmanifest',
   './icons/icon-32.png',
@@ -60,7 +60,7 @@ self.addEventListener('fetch', (e) => {
     e.respondWith(
       fetch(req).then((res) => {
         const copy = res.clone();
-        caches.open(CACHE).then((c) => c.put('./index.html', copy)).catch(() => {});
+        caches.open(CACHE).then((c) => c.put(req, copy)).catch(() => {});
         return res;
       }).catch(() => caches.match('./index.html'))
     );
