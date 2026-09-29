@@ -1,6 +1,9 @@
 /* ================================================================
- * reader.js — 阅读器
- *  - 一屏一页纵向分页、轻触/滑动翻页
+ * reader.js — 阅读器（纵向连续滚动模式）
+ *  - 章节无缝拼接，滚动到边缘自动加载前后章（双端加载）
+ *  - 滚动驱动进度/章节标题/进度条，全局百分比跨章累计
+ *  - 左右轻滑翻一屏、轻点区域翻屏、中间切换工具栏
+ *  - 顶栏隐藏后点击任意处或下拉唤出（返回永远可达）
  *  - 进度记忆、目录跳转、书签、划线、复制
  *  - 阅读设置（字号/行距/字体/主题/亮度）、阅读计时
  * ================================================================ */
@@ -12,12 +15,15 @@ const Reader = (() => {
   const DEFAULT_CPM = 420;          // 默认阅读速度：字/分钟
   const SAVE_DEBOUNCE = 600;        // 进度保存防抖 ms
   const BOOKMARK_RADIUS = 60;       // 书签去重半径（字符）
+  const MAX_RENDER = 6;             // 单次最多渲染章节数（双端加载裁剪用）
+  const LOAD_EDGE = 420;            // 距边缘多少 px 触发前后章加载
+  const PAD_TOP = 0.08;             // 章节定位顶部留白（视口高比例）
+  const PAD_BOTTOM = 0.12;          // 章节定位底部留白（视口高比例）
 
   let S = Object.assign({}, DEFAULT_SETTINGS);
   let book = null;
-  let chapterIdx = 0;
-  let page = 0;
-  let pageCount = 1;
+  let rendered = [];                // 已渲染章节 idx（升序）
+  let curChapter = 0;               // 当前可视章节 idx
   let parasCache = new Map();       // idx -> paras
   let saveTimer = null;
   let barsVisible = true;
@@ -28,6 +34,7 @@ const Reader = (() => {
   let cpm = DEFAULT_CPM;
   let suppressClick = false;
   let touch = { x0: 0, y0: 0, t0: 0, moved: false };
+  let scrollBusy = false;
 
   const $ = (id) => document.getElementById(id);
   const els = {
@@ -37,6 +44,9 @@ const Reader = (() => {
     bookmark: 'btn-bookmark', theme: 'btn-theme', tocList: 'toc-list', tocPanel: 'toc-panel',
     selPopup: 'sel-popup', veil: 'brightness-veil',
   };
+  const vp = () => $(els.viewport);
+  const cnt = () => $(els.content);
+  const vh = () => vp().clientHeight;
 
   /* ================= 设置 ================= */
 
@@ -51,17 +61,15 @@ const Reader = (() => {
   function applySettings() {
     const scr = $(els.screen);
     scr.setAttribute('data-theme', S.theme);
-    const c = $(els.content);
+    const c = cnt();
     c.style.setProperty('--rd-fs', S.fontSize + 'px');
     c.style.setProperty('--rd-lh', S.lineHeight);
     c.style.setProperty('--rd-font', Engine.FONT_STACKS[S.fontFamily]);
     const veil = $(els.veil);
     veil.style.opacity = ((100 - S.brightness) / 100 * 0.6).toFixed(2);
     veil.classList.toggle('hidden', S.brightness >= 100);
-    // 主题快捷按钮图标
     $(els.theme).querySelector('.ic-moon').classList.toggle('hidden', S.theme === 'night');
     $(els.theme).querySelector('.ic-sun').classList.toggle('hidden', S.theme !== 'night');
-    // 设置面板控件
     $('font-size-val').textContent = S.fontSize;
     $('lineheight-slider').value = S.lineHeight;
     document.querySelectorAll('#font-family-options .seg-btn').forEach(b => b.classList.toggle('active', b.dataset.font === S.fontFamily));
@@ -81,8 +89,8 @@ const Reader = (() => {
   async function open(bookId) {
     book = await DB.getBook(bookId);
     if (!book) return;
-    chapterIdx = (book.progress && book.progress.chapter) || 0;
-    if (chapterIdx >= book.chaptersMeta.length) chapterIdx = 0;
+    curChapter = (book.progress && book.progress.chapter) || 0;
+    if (curChapter >= book.chaptersMeta.length) curChapter = 0;
     parasCache = new Map();
     sessionStart = Date.now();
     sessionSecs = 0; sessionChars = 0;
@@ -94,9 +102,10 @@ const Reader = (() => {
     $(els.chapterTitle).textContent = '';
     setBarsVisible(true);
 
-    await loadChapter(chapterIdx);
+    await renderChaptersAround(curChapter);
     const ratio = (book.progress && book.progress.ratio) || 0;
-    goPage(Engine.pageForRatio(ratio, pageCount), { animate: false });
+    scrollToRatio(curChapter, ratio);
+    $(els.chapterTitle).textContent = (book.chaptersMeta[curChapter] || {}).title || '';
     refreshUI();
     buildTocList();
   }
@@ -111,85 +120,220 @@ const Reader = (() => {
     window.dispatchEvent(new CustomEvent('reader-closed'));
   }
 
-  /* ================= 章节加载与渲染 ================= */
+  /* ================= 章节渲染 ================= */
 
-  async function loadChapter(idx) {
-    chapterIdx = idx;
+  async function chapterParas(idx) {
     if (!parasCache.has(idx)) {
       const rec = await DB.getChapter(`${book.id}:${idx}`);
       parasCache.set(idx, (rec && rec.paras) || []);
     }
-    await render();
+    return parasCache.get(idx);
   }
 
-  async function render() {
-    const paras = parasCache.get(chapterIdx) || [];
-    const highlights = (book.highlights || []).filter(h => h.chapter === chapterIdx);
-    const html = Engine.buildChapterHTML(paras, highlights);
-    const c = $(els.content);
-    c.classList.add('no-anim');
+  function chapterHTML(idx) {
+    const meta = book.chaptersMeta[idx] || {};
+    const paras = parasCache.get(idx) || [];
+    const highlights = (book.highlights || []).filter(h => h.chapter === idx);
+    const body = Engine.buildChapterHTML(paras, highlights);
+    const name = meta.title || `第 ${idx + 1} 章`;
+    return `<div class="rd-chapter" data-idx="${idx}">
+  <div class="rd-chapter-head"><span class="rd-chapter-name">${Engine.esc(name)}</span><span class="rd-chapter-rule"></span></div>
+  <div class="rd-chapter-body">${body}</div>
+</div>`;
+  }
+
+  /** 以某章为中心渲染（该章 + 后两章），用于打开/跳转 */
+  async function renderChaptersAround(idx) {
+    const total = book.chaptersMeta.length;
+    rendered = [];
+    for (let i = Math.max(0, idx); i < Math.min(total, idx + 3); i++) rendered.push(i);
+    await renderAll();
+    await doubleRaf();
+  }
+
+  /** 重建全部已渲染章节 DOM（先预载 paras，append/prepend 后保持视口内容位置） */
+  async function renderAll() {
+    await Promise.all(rendered.map(idx => chapterParas(idx)));
+    const c = cnt();
+    let html = rendered.map(chapterHTML).join('');
+    const total = book.chaptersMeta.length;
+    if (rendered.length && rendered[rendered.length - 1] === total - 1) html += '<div class="rd-end">— 全书完 —</div>';
     c.innerHTML = html;
-    c.style.transform = `translateY(0px)`;
-    // 强制重排后测量
-    await new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)));
-    const vh = $(els.viewport).clientHeight;
-    pageCount = Engine.pageCountFor(c.offsetHeight, vh);
-    $(els.chapterTitle).textContent = (book.chaptersMeta[chapterIdx] || {}).title || '';
-    c.classList.remove('no-anim');
   }
 
-  function applyTransform(p, animate = true) {
-    const c = $(els.content);
-    if (!animate) c.classList.add('no-anim');
-    c.style.transform = `translateY(${-p * $(els.viewport).clientHeight}px)`;
-    if (!animate) requestAnimationFrame(() => c.classList.remove('no-anim'));
+  function doubleRaf() {
+    return new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)));
   }
 
-  function goPage(p, opts = {}) {
-    const animate = opts.animate !== false;
-    p = Math.max(0, Math.min(pageCount - 1, p));
-    if (p === page && !opts.force) return;
-    page = p;
-    applyTransform(page, animate);
+  /** 章节位置表 idx -> {top, height}（相对 content 内容区） */
+  function chapterPositions() {
+    const map = new Map();
+    for (const el of cnt().querySelectorAll('.rd-chapter')) {
+      const idx = parseInt(el.dataset.idx, 10);
+      if (!isNaN(idx)) map.set(idx, { top: el.offsetTop, height: el.offsetHeight });
+    }
+    return map;
+  }
+
+  /** 视口中线所在的章节 */
+  function currentChapterIdx() {
+    const pos = chapterPositions();
+    if (pos.size === 0) return curChapter;
+    const mid = vp().scrollTop + vh() / 2;
+    let best = rendered[0], bestTop = -Infinity;
+    for (const [idx, p] of pos) {
+      if (mid >= p.top && mid < p.top + p.height) return idx;
+      if (p.top <= mid && p.top > bestTop) { best = idx; bestTop = p.top; }
+    }
+    return best !== undefined ? best : rendered[0];
+  }
+
+  /** 指定章节内的滚动比例 0..1（默认当前可视章节） */
+  function currentRatio(idx = currentChapterIdx()) {
+    const pos = chapterPositions();
+    const p = pos.get(idx);
+    if (!p) return 0;
+    const mid = vp().scrollTop + vh() / 2;
+    return Math.max(0, Math.min(1, (mid - p.top) / Math.max(1, p.height)));
+  }
+
+  /** 全书进度 0..1（跨章按 charLen 累计） */
+  function globalPercent() {
+    const meta = book.chaptersMeta;
+    let cum = 0;
+    for (let i = 0; i < curChapter && i < meta.length; i++) cum += meta[i].charLen;
+    const len = (meta[curChapter] || {}).charLen || 1;
+    return Math.max(0, Math.min(1, (cum + currentRatio(curChapter) * len) / Math.max(1, book.totalChars)));
+  }
+
+  /** 把某章内比例映射为 scrollTop 并定位 */
+  function scrollToRatio(idx, ratio) {
+    const v = vp();
+    const pos = chapterPositions();
+    const p = pos.get(idx);
+    if (!p) return;
+    const max = Math.max(0, v.scrollHeight - v.clientHeight);
+    const padT = Math.round(PAD_TOP * vh());
+    const padB = Math.round(PAD_BOTTOM * vh());
+    const start = Math.max(0, p.top - padT);
+    const end = Math.min(max, p.top + p.height - v.clientHeight + padB);
+    const t = Math.max(0, Math.min(1, ratio || 0));
+    v.scrollTop = start + t * Math.max(0, end - start);
+  }
+
+  /** 全书百分比 → 反解章节定位（跨章自动渲染） */
+  async function seekToPercent(pct) {
+    pct = Math.max(0, Math.min(1, pct));
+    const meta = book.chaptersMeta;
+    const target = Math.round(pct * Math.max(1, book.totalChars));
+    let cum = 0, idx = 0;
+    for (let i = 0; i < meta.length; i++) {
+      if (cum + meta[i].charLen >= target || i === meta.length - 1) { idx = i; break; }
+      cum += meta[i].charLen;
+    }
+    const len = meta[idx].charLen || 1;
+    const ratio = Math.max(0, Math.min(1, (target - cum) / len));
+    if (!rendered.includes(idx)) await renderChaptersAround(idx);
+    curChapter = idx;
+    scrollToRatio(idx, ratio);
     refreshUI();
     scheduleSave();
   }
 
-  /** 设置变化后保持阅读位置重绘 */
+  /** 设置/窗口变化后保持阅读位置重绘 */
   async function reRenderKeepPos() {
-    const ratio = Engine.ratioForPage(page, pageCount);
-    await render();
-    goPage(Engine.pageForRatio(ratio, pageCount), { animate: false });
+    const idx = curChapter;
+    const ratio = currentRatio(idx);
+    await renderChaptersAround(idx);
+    curChapter = idx;
+    scrollToRatio(idx, ratio);
     refreshUI();
     if (!$(els.tocPanel).classList.contains('hidden')) buildTocList();
   }
 
-  /* ================= 翻页 ================= */
+  /* ================= 双端滚动加载 ================= */
 
-  async function nextPage() {
-    if (page < pageCount - 1) { goPage(page + 1); return; }
-    if (chapterIdx < book.chaptersMeta.length - 1) {
-      await loadChapter(chapterIdx + 1);
-      goPage(0, { animate: false });
-      refreshUI();
-    } else {
-      toast('已经是最后一页啦');
+  function onScroll() {
+    if (scrollBusy) return;
+    scrollBusy = true;
+    requestAnimationFrame(() => {
+      scrollBusy = false;
+      const idx = currentChapterIdx();
+      const changed = idx !== curChapter;
+      curChapter = idx;
+      const meta = book.chaptersMeta[curChapter] || {};
+      $(els.chapterTitle).textContent = meta.title || '';
+      const pct = Math.round(globalPercent() * 10000) / 100;
+      $('progress-slider').value = pct;
+      $('progress-text').textContent = `${pct}%`;
+      updateBookmarkIcon();
+      scheduleSave();
+      maybeLoadMore();
+    });
+  }
+
+  function maybeLoadMore() {
+    const v = vp();
+    const total = book.chaptersMeta.length;
+    const last = rendered[rendered.length - 1];
+    if (v.scrollTop + v.clientHeight > v.scrollHeight - LOAD_EDGE) {
+      if (last < total - 1) appendChapter(last + 1);
+    } else if (v.scrollTop < LOAD_EDGE) {
+      if (rendered[0] > 0) prependChapter(rendered[0] - 1);
     }
   }
 
-  async function prevPage() {
-    if (page > 0) { goPage(page - 1); return; }
-    if (chapterIdx > 0) {
-      await loadChapter(chapterIdx - 1);
-      goPage(pageCount - 1, { animate: false });
-      refreshUI();
-    }
+  /** 底部追加下一章（超上限时丢弃最前章，补偿滚动位置） */
+  async function appendChapter(idx) {
+    const st = vp().scrollTop;
+    const beforeH = cnt().scrollHeight;
+    rendered.push(idx);
+    if (rendered.length > MAX_RENDER) rendered.shift();
+    await renderAll();
+    await doubleRaf();
+    const v = vp();
+    v.scrollTop = st + (cnt().scrollHeight - beforeH);
+    if (v.scrollTop + v.clientHeight > v.scrollHeight) v.scrollTop = Math.max(0, v.scrollHeight - v.clientHeight);
   }
+
+  /** 顶部预加载上一章（滚动后丢弃最后章） */
+  async function prependChapter(idx) {
+    const st = vp().scrollTop;
+    const beforeH = cnt().scrollHeight;
+    rendered.unshift(idx);
+    if (rendered.length > MAX_RENDER) rendered.pop();
+    await renderAll();
+    await doubleRaf();
+    const v = vp();
+    v.scrollTop = st + (cnt().scrollHeight - beforeH);
+    if (v.scrollTop > v.scrollHeight - v.clientHeight) v.scrollTop = Math.max(0, v.scrollHeight - v.clientHeight);
+  }
+
+  /* ================= 翻屏 ================= */
+
+  function scrollScreen(dir) {
+    const v = vp();
+    const atEnd = v.scrollTop + v.clientHeight >= v.scrollHeight - 2;
+    const atStart = v.scrollTop <= 2;
+    if (dir > 0 && atEnd) {
+      if (rendered[rendered.length - 1] >= book.chaptersMeta.length - 1) toast('已经是最后一页啦');
+      return;
+    }
+    if (dir < 0 && atStart) {
+      if (rendered[0] <= 0) toast('已经到开头啦');
+      return;
+    }
+    v.scrollBy({ top: dir * Math.round(0.92 * vh()), behavior: 'smooth' });
+  }
+
+  async function nextPage() { scrollScreen(1); }
+  async function prevPage() { scrollScreen(-1); }
 
   async function gotoChapter(idx, ratio = 0) {
-    if (idx === chapterIdx) { goPage(Engine.pageForRatio(ratio, pageCount), { animate: false }); return; }
-    await loadChapter(idx);
-    goPage(Engine.pageForRatio(ratio, pageCount), { animate: false });
+    if (idx < 0 || idx >= book.chaptersMeta.length) return;
+    await renderChaptersAround(idx);
+    curChapter = idx;
+    scrollToRatio(idx, ratio);
     refreshUI();
     closeSheet('toc-panel');
   }
@@ -205,13 +349,15 @@ const Reader = (() => {
     if (!$(els.tocPanel).classList.contains('hidden')) buildTocList();
   }
 
-  function globalPercent() {
-    const meta = book.chaptersMeta;
-    let cum = 0;
-    for (let i = 0; i < chapterIdx && i < meta.length; i++) cum += meta[i].charLen;
-    const ratio = Engine.ratioForPage(page, pageCount);
-    const curLen = (meta[chapterIdx] || {}).charLen || 1;
-    return Math.max(0, Math.min(1, (cum + ratio * curLen) / Math.max(1, book.totalChars)));
+  /** 当前阅读位置在章节内的字符偏移（书签用） */
+  function currentOffset() {
+    const len = (book.chaptersMeta[curChapter] || {}).charLen || 1;
+    return Math.round(currentRatio(curChapter) * len);
+  }
+
+  function currentBookmark() {
+    const off = currentOffset();
+    return (book.bookmarks || []).find(b => b.chapter === curChapter && Math.abs(b.offset - off) < BOOKMARK_RADIUS);
   }
 
   function updateBookmarkIcon() {
@@ -220,29 +366,18 @@ const Reader = (() => {
     $(els.bookmark).querySelector('.ic-bm-off').classList.toggle('hidden', has);
   }
 
-  function currentOffset() {
-    const ratio = Engine.ratioForPage(page, pageCount);
-    const len = (book.chaptersMeta[chapterIdx] || {}).charLen || 1;
-    return Math.round(ratio * len);
-  }
-
-  function currentBookmark() {
-    const off = currentOffset();
-    return (book.bookmarks || []).find(b => b.chapter === chapterIdx && Math.abs(b.offset - off) < BOOKMARK_RADIUS);
-  }
-
   function toggleBookmark() {
     const off = currentOffset();
     const marks = book.bookmarks || [];
-    const hit = marks.find(b => b.chapter === chapterIdx && Math.abs(b.offset - off) < BOOKMARK_RADIUS);
-    const paras = parasCache.get(chapterIdx) || [];
+    const hit = marks.find(b => b.chapter === curChapter && Math.abs(b.offset - off) < BOOKMARK_RADIUS);
+    const paras = parasCache.get(curChapter) || [];
     const fullText = Engine.buildFullText(paras);
     if (hit) {
       book.bookmarks = marks.filter(b => b !== hit);
       toast('已移除书签');
     } else {
       const preview = fullText.slice(Math.max(0, off - 12), Math.min(fullText.length, off + 28)).replace(/\n/g, ' ');
-      marks.push({ chapter: chapterIdx, offset: off, preview, time: Date.now() });
+      marks.push({ chapter: curChapter, offset: off, preview, time: Date.now() });
       book.bookmarks = marks;
       toast('已添加书签');
     }
@@ -259,8 +394,7 @@ const Reader = (() => {
 
   async function flushProgress() {
     if (!book) return;
-    const ratio = Engine.ratioForPage(page, pageCount);
-    book.progress = { chapter: chapterIdx, ratio };
+    book.progress = { chapter: curChapter, ratio: currentRatio(curChapter) };
     book.lastReadAt = Date.now();
     await saveBookNow();
     await flushReadingTime();
@@ -283,7 +417,6 @@ const Reader = (() => {
       const stats = await DB.getKV('readStats', {});
       stats[day] = (stats[day] || 0) + secs;
       await DB.setKV('readStats', stats);
-      // 速度估计
       const cum = Math.round(globalPercent() * book.totalChars);
       const advanced = Math.max(0, cum - lastProgressChars);
       if (advanced > 0 && sessionSecs > 20) {
@@ -312,15 +445,14 @@ const Reader = (() => {
     let cum = 0;
     meta.forEach((m, i) => {
       const item = document.createElement('button');
-      item.className = 'toc-item' + (i === chapterIdx ? ' current' : '');
-      const dot = i === chapterIdx ? '<span class="toc-dot"></span>' : '<span style="width:5px;flex-shrink:0"></span>';
+      item.className = 'toc-item' + (i === curChapter ? ' current' : '');
+      const dot = i === curChapter ? '<span class="toc-dot"></span>' : '<span style="width:5px;flex-shrink:0"></span>';
       const pct = Math.min(100, Math.round((cum + m.charLen) / Math.max(1, book.totalChars) * 100));
       item.innerHTML = `${dot}<span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${Engine.esc(m.title || `第 ${i + 1} 章`)}</span><span class="toc-pct">${pct}%</span>`;
       item.addEventListener('click', () => gotoChapter(i, 0));
       list.appendChild(item);
       cum += m.charLen;
     });
-    // 滚动到当前章节
     const cur = list.querySelector('.toc-item.current');
     if (cur) cur.scrollIntoView({ block: 'center' });
   }
@@ -328,7 +460,7 @@ const Reader = (() => {
   /* ================= 划词 / 划线 ================= */
 
   function textMap() {
-    const root = $(els.content);
+    const root = cnt();
     const map = [];
     let domLen = 0, fullLen = 0;
     const walk = (node) => {
@@ -364,17 +496,36 @@ const Reader = (() => {
     return null;
   }
 
+  /** 选区 → 章节内字符偏移 {chapter, start, end}（跨章 DOM 下映射到所属章节） */
   function selectionOffsets() {
     const sel = window.getSelection();
     if (!sel || sel.rangeCount === 0 || sel.isCollapsed) return null;
     const range = sel.getRangeAt(0);
-    const root = $(els.content);
+    const root = cnt();
     if (!root.contains(range.commonAncestorContainer)) return null;
     const map = textMap();
+    const byNode = new Map(map.map(m => [m.node, m]));
+
+    const chapOf = (node) => {
+      const el = node.nodeType === Node.ELEMENT_NODE ? node : node.parentElement;
+      const chap = el && el.closest ? el.closest('.rd-chapter') : null;
+      if (!chap) return null;
+      const walker = document.createTreeWalker(chap, NodeFilter.SHOW_TEXT);
+      let first = null, last = null;
+      while (walker.nextNode()) { if (!first) first = walker.currentNode; last = walker.currentNode; }
+      if (!first) return null;
+      const fe = byNode.get(first), le = byNode.get(last);
+      if (!fe || !le) return null;
+      return { idx: parseInt(chap.dataset.idx, 10), start: fe.fullStart, end: le.fullStart + last.textContent.length };
+    };
+
+    const sp = chapOf(range.startContainer);
+    const ep = chapOf(range.endContainer);
+    if (!sp || !ep || sp.idx !== ep.idx) return null;
     const s = resolveOffset(map, range.startContainer, range.startOffset);
     const e = resolveOffset(map, range.endContainer, range.endOffset);
     if (s === null || e === null || e <= s || e - s > 800) return null;
-    return { start: s, end: e };
+    return { chapter: sp.idx, start: s - sp.start, end: e - sp.start };
   }
 
   function showSelPopup(rect) {
@@ -395,26 +546,26 @@ const Reader = (() => {
     const range = sel.getRangeAt(0);
     const rect = range.getBoundingClientRect();
     if (rect.width === 0 && rect.height === 0) { hideSelPopup(); return; }
-    sel.__pending = off; // 供按钮使用
+    sel.__pending = off;
     showSelPopup(rect);
   }
 
   async function addHighlight() {
     const off = window.getSelection()?.__pending || selectionOffsets();
     if (!off) return;
-    const paras = parasCache.get(chapterIdx) || [];
+    const paras = parasCache.get(off.chapter) || [];
     const fullText = Engine.buildFullText(paras);
     let text = fullText.slice(off.start, off.end).replace(/\n/g, '').trim();
     if (!text) return;
-    const hl = { id: `h${Date.now().toString(36)}${Math.floor(Math.random() * 1e4)}`, chapter: chapterIdx, start: off.start, end: off.end, text, color: '#f2b33d', time: Date.now() };
+    const hl = { id: `h${Date.now().toString(36)}${Math.floor(Math.random() * 1e4)}`, chapter: off.chapter, start: off.start, end: off.end, text, color: '#f2b33d', time: Date.now() };
     book.highlights = book.highlights || [];
     book.highlights.push(hl);
     await saveBookNow();
     clearSelection();
-    await render();
-    // 定位回原来比例
-    const ratio = Engine.ratioForPage(page, pageCount);
-    goPage(Engine.pageForRatio(ratio, pageCount), { animate: false });
+    const ratio = currentRatio(off.chapter);
+    await renderChaptersAround(off.chapter);
+    curChapter = off.chapter;
+    scrollToRatio(off.chapter, ratio);
     toast('已划线');
   }
 
@@ -426,7 +577,7 @@ const Reader = (() => {
 
   async function copySelection() {
     const off = window.getSelection()?.__pending || selectionOffsets();
-    const paras = parasCache.get(chapterIdx) || [];
+    const paras = parasCache.get(off ? off.chapter : curChapter) || [];
     const fullText = Engine.buildFullText(paras);
     if (off) {
       const text = fullText.slice(off.start, off.end);
@@ -438,9 +589,9 @@ const Reader = (() => {
   async function removeHighlight(id) {
     book.highlights = (book.highlights || []).filter(h => h.id !== id);
     await saveBookNow();
-    await render();
-    const ratio = Engine.ratioForPage(page, pageCount);
-    goPage(Engine.pageForRatio(ratio, pageCount), { animate: false });
+    const ratio = currentRatio(curChapter);
+    await renderChaptersAround(curChapter);
+    scrollToRatio(curChapter, ratio);
     toast('已删除划线');
   }
 
@@ -458,15 +609,22 @@ const Reader = (() => {
       const t = e.changedTouches[0];
       const dx = t.clientX - touch.x0, dy = t.clientY - touch.y0;
       const dt = Date.now() - touch.t0;
-      if (dt > 500) { suppressClick = true; return; }      // 长按（选词）不翻页
+      if (dt > 500) { suppressClick = true; return; }      // 长按（选词）不响应
+      // 左右横滑：翻一屏
       if (Math.abs(dx) > 45 && Math.abs(dx) > Math.abs(dy) * 1.5) {
-        suppressClick = true;                              // 滑动翻页
-        if (dx < 0) nextPage(); else prevPage();
+        suppressClick = true;
+        scrollScreen(dx < 0 ? 1 : -1);
         return;
       }
-      if (Math.abs(dx) < 14 && Math.abs(dy) < 14) {
-        handleTap(t.clientX, window.innerWidth);
+      // 顶栏隐藏时向下拉：唤出顶栏
+      if (!barsVisible && dy > 40 && Math.abs(dy) > Math.abs(dx) * 2) {
+        suppressClick = true;
+        setBarsVisible(true);
+        return;
       }
+      // 轻点
+      if (Math.abs(dx) < 14 && Math.abs(dy) < 14) handleTap(t.clientX, window.innerWidth);
+      // 其余（纵向滑动）交给浏览器原生滚动
     }, { passive: true });
 
     body.addEventListener('click', (e) => {
@@ -477,16 +635,18 @@ const Reader = (() => {
 
     document.addEventListener('keydown', (e) => {
       if (!book || $(els.screen).classList.contains('hidden')) return;
-      if (e.key === 'ArrowRight') nextPage();
-      if (e.key === 'ArrowLeft') prevPage();
+      if (e.key === 'ArrowRight' || e.key === 'PageDown') scrollScreen(1);
+      if (e.key === 'ArrowLeft' || e.key === 'PageUp') scrollScreen(-1);
       if (e.key === 'Escape') closeSheets();
     });
   }
 
+  /** 点击区域：隐藏态点击任意处唤出顶栏；显示态左/右翻屏、中间收起 */
   function handleTap(x, w) {
-    if (x < w * 0.3) prevPage();
-    else if (x > w * 0.7) nextPage();
-    else toggleBars();
+    if (!barsVisible) { setBarsVisible(true); return; }
+    if (x < w * 0.3) scrollScreen(-1);
+    else if (x > w * 0.7) scrollScreen(1);
+    else setBarsVisible(false);
   }
 
   function setBarsVisible(v) {
@@ -497,7 +657,6 @@ const Reader = (() => {
 
   /* ================= 面板 ================= */
 
-  // 全局面板开关定义在 app.js（window.openSheet / closeSheet / closeSheets）
   function openSheet(id) { window.openSheet(id); }
   function closeSheet(id) { window.closeSheet(id); }
   function closeSheets() { window.closeSheets(); }
@@ -514,14 +673,12 @@ const Reader = (() => {
       setSetting('theme', S.theme === 'night' ? 'day' : 'night');
     });
 
-    // 进度条
+    // 进度条：拖动 → 全局百分比定位（节流）；松手 → 保存
     const slider = $('progress-slider');
+    let sliderTimer = null;
     slider.addEventListener('input', () => {
-      const pct = parseFloat(slider.value);
-      const target = Math.round(pct / 100 * (pageCount - 1));
-      applyTransform(target, false);
-      page = target;
-      refreshUI();
+      clearTimeout(sliderTimer);
+      sliderTimer = setTimeout(() => seekToPercent(parseFloat(slider.value) / 100), 90);
     });
     slider.addEventListener('change', () => scheduleSave());
 
@@ -546,14 +703,14 @@ const Reader = (() => {
     // 划词
     $('sel-highlight').addEventListener('click', addHighlight);
     $('sel-copy').addEventListener('click', copySelection);
-    $(els.content).addEventListener('mouseup', (e) => { setTimeout(() => { if (!window.getSelection().isCollapsed) handleSelection(); }, 10); });
-    $(els.content).addEventListener('touchend', (e) => {
+    cnt().addEventListener('mouseup', (e) => { setTimeout(() => { if (!window.getSelection().isCollapsed) handleSelection(); }, 10); });
+    cnt().addEventListener('touchend', (e) => {
       setTimeout(() => {
         if (window.getSelection() && !window.getSelection().isCollapsed) handleSelection();
       }, 350);
     });
     // 点击划线 → 删除
-    $(els.content).addEventListener('click', (e) => {
+    cnt().addEventListener('click', (e) => {
       const mark = e.target.closest('mark[data-hl]');
       if (mark) {
         e.stopPropagation();
@@ -566,6 +723,9 @@ const Reader = (() => {
         document.getElementById('sel-del-hl').addEventListener('click', () => { removeHighlight(mark.dataset.hl); hideSelPopup(); });
       }
     });
+
+    // 滚动监听
+    vp().addEventListener('scroll', onScroll, { passive: true });
 
     // 生命周期
     document.addEventListener('visibilitychange', () => { if (document.hidden) flushProgress(); });

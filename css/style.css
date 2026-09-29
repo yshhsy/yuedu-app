@@ -129,13 +129,16 @@ button { font-family:inherit; border:none; background:none; cursor:pointer; colo
 #reader-body { position:absolute; inset:0; }
 #reader-viewport {
   position:absolute; left:0; right:0; top:0; bottom:0;
-  overflow:hidden;
+  overflow-y:auto; overflow-x:hidden;
+  overscroll-behavior:contain;
+  -webkit-overflow-scrolling:touch;
+  scrollbar-width:none;
 }
+#reader-viewport::-webkit-scrollbar { display:none; width:0; height:0; }
 #reader-content {
-  width:100%; padding:7vh 22px 9vh;
+  width:100%; min-height:100%; box-sizing:border-box;
+  padding:8vh 22px 16vh;
   font-size:var(--rd-fs); line-height:var(--rd-lh); font-family:var(--rd-font);
-  transform:translateY(0); will-change:transform;
-  transition:transform .26s cubic-bezier(.25,.7,.3,1);
 }
 #reader-content .rd-p { margin:0 0 1.1em; text-align:justify; }
 #reader-content .rd-p:first-child { margin-top:0; }
@@ -144,6 +147,16 @@ button { font-family:inherit; border:none; background:none; cursor:pointer; colo
 #reader-content mark { background:transparent; color:inherit; border-bottom:2px solid var(--hl-color,#f2b33d); }
 #reader-content .rd-pagebreak { display:block; height:0; }
 #reader-screen[data-theme="night"] #reader-content mark { border-bottom-color:#e0b53a; }
+
+/* 章节区块：章首居中标题 + 分隔线，章首段缩进 */
+.rd-chapter { }
+.rd-chapter-head { text-align:center; padding:3vh 0 2vh; }
+.rd-chapter-head:first-child { padding-top:0; }
+.rd-chapter-name { display:block; font-size:20px; font-weight:700; color:var(--rd-fg); letter-spacing:.08em; }
+.rd-chapter-rule { display:block; width:42px; height:2px; margin:14px auto 0; border-radius:2px; background:var(--rd-fg-2); opacity:.45; }
+#reader-content .rd-chapter-body .rd-p:first-child { text-indent:2em; }
+/* 全书完 */
+.rd-end { text-align:center; color:var(--rd-fg-2); font-size:14px; letter-spacing:.25em; padding:9vh 0 6vh; }
 
 #brightness-veil { position:absolute; inset:0; background:#000; pointer-events:none; z-index:10; opacity:0; transition:opacity .2s; }
 
