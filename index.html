@@ -7,13 +7,14 @@
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="description" content="阅读 · 轻量级电子书阅读器，支持 TXT/EPUB 导入、书签划线、多主题字体，离线可用">
 <title>阅读</title>
 <link rel="manifest" href="manifest.webmanifest">
 <link rel="icon" href="icons/icon.svg" type="image/svg+xml">
 <link rel="icon" href="icons/icon-32.png" sizes="32x32" type="image/png">
 <link rel="icon" href="icons/icon-16.png" sizes="16x16" type="image/png">
 <link rel="apple-touch-icon" href="icons/icon-180.png">
-<link rel="stylesheet" href="css/style.css?v=15">
+<link rel="stylesheet" href="css/style.css?v=16">
 </head>
 <body>
 <div id="app">
@@ -76,12 +77,6 @@
       </div>
 <div id="brightness-veil" class="hidden"></div>
 </div>
-
-<!-- 常驻悬浮返回：顶栏隐藏时也能一键回书架 -->
-<button id="btn-back-float" aria-label="返回书架">
-<svg viewBox="0 0 24 24"><path d="M15 5l-7 7 7 7" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></svg>
-</button>
-
 <!-- 底部栏 -->
     <div id="reader-bottombar" class="reader-bar reader-bottombar">
       <button id="btn-toc" class="bar-btn with-text" aria-label="目录">
@@ -144,9 +139,9 @@
         <span class="setting-label">字体</span>
         <div id="font-family-options" class="seg-options">
           <button data-font="sans" class="seg-btn">默认</button>
-          <button data-font="song" class="seg-btn" style="font-family:'Songti SC','Noto Serif CJK SC','SimSun',serif">宋体</button>
-          <button data-font="hei" class="seg-btn" style="font-family:'PingFang SC','Noto Sans CJK SC','Microsoft YaHei',sans-serif">黑体</button>
-          <button data-font="kai" class="seg-btn" style="font-family:'Kaiti SC','KaiTi','STKaiti',serif">楷体</button>
+          <button data-font="song" class="seg-btn" style="font-family:'Songti SC','STSong','SimSun','Source Han Serif SC','Noto Serif CJK SC',serif">宋体</button>
+          <button data-font="hei" class="seg-btn" style="font-family:'PingFang SC','Heiti SC','Hiragino Sans GB','Microsoft YaHei','Source Han Sans SC',sans-serif">黑体</button>
+          <button data-font="kai" class="seg-btn" style="font-family:'Kaiti SC','STKaiti','KaiTi','BiauKai',serif">楷体</button>
         </div>
       </div>
       <div class="setting-row">
@@ -219,11 +214,11 @@
 </div>
 
 <script src="lib/jszip.min.js"></script>
-<script src="js/db.js?v=15"></script>
-<script src="js/parser.js?v=15"></script>
-<script src="js/engine.js?v=15"></script>
-<script src="js/library.js?v=15"></script>
-<script src="js/reader.js?v=15"></script>
-<script src="js/app.js?v=15"></script>
+<script src="js/db.js?v=16"></script>
+<script src="js/parser.js?v=16"></script>
+<script src="js/engine.js?v=16"></script>
+<script src="js/library.js?v=16"></script>
+<script src="js/reader.js?v=16"></script>
+<script src="js/app.js?v=16"></script>
 </body>
 </html>

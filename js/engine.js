@@ -7,11 +7,13 @@
 
 const Engine = (() => {
 
+  // 字体栈覆盖：iOS/macOS 系统字体（家族名 + PostScript 名双写法）→ Windows → Android/Linux 思源系 → 泛型兜底。
+  // 部分浏览器只认其中一种写法，缺一种就会出现"选了宋体/楷体但渲染不变"的问题。
   const FONT_STACKS = {
-    sans: `-apple-system,BlinkMacSystemFont,"PingFang SC","Noto Sans CJK SC","Microsoft YaHei",sans-serif`,
-    song: `"Songti SC","Noto Serif CJK SC","SimSun",serif`,
-    hei:  `"PingFang SC","Noto Sans CJK SC","Microsoft YaHei",sans-serif`,
-    kai:  `"Kaiti SC","KaiTi","STKaiti",serif`,
+    sans: `-apple-system,BlinkMacSystemFont,"Helvetica Neue","PingFang SC","Hiragino Sans GB","Microsoft YaHei","Noto Sans CJK SC","Source Han Sans SC",sans-serif`,
+    song: `"Songti SC","STSongti-SC-Regular","STSong","SimSun","NSimSun","Source Han Serif SC","Noto Serif CJK SC","Noto Serif SC",serif`,
+    hei:  `"PingFang SC","Heiti SC","Hiragino Sans GB","Microsoft YaHei","Source Han Sans SC","Noto Sans CJK SC",sans-serif`,
+    kai:  `"Kaiti SC","STKaiti-SC-Regular","STKaiti","KaiTi","BiauKai","AR PL UKai CN",serif`,
   };
 
   function esc(s) {

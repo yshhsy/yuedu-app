@@ -400,19 +400,12 @@ const Library = (() => {
     }
   }
 
-  // 解析 {book, author, chapters:[{number,title,paragraphs:[str...]}]} → {title, author, chapters:[{title, paras}]}
-  // onProgress(pct, label)：驱动封面上的圆圈进度（35→100）
-  async function importCloudJSON(id, data, label, coverUrl, onProgress) {
-    const set = typeof onProgress === 'function' ? onProgress : () => {};
-    const title = (data.book || data.title || label || '未命名').trim();
-    const author = (data.author || '').trim();
+  // 解析 {book, author, chapters:[{number,title,paragraphs:[str...]}]} → {title, author, chapters:[{title, paras}]}，并计算章节元信息
+  function parseCloudChapters(data) {
     const chapters = (data.chapters || []).map((ch, i) => ({
       title: (ch.title || '').trim() || `第 ${i + 1} 章`,
       paras: (ch.paragraphs || []).map(t => ({ text: (typeof t === 'string' ? t : (t && t.text) || '').trim() })).filter(p => p.text),
     })).filter(ch => ch.paras.length);
-
-    set(36, '整理章节…');
-
     let totalChars = 0;
     const chaptersMeta = chapters.map(ch => {
       let len = 0, n = 0;
@@ -421,6 +414,17 @@ const Library = (() => {
       totalChars += len;
       return { title: ch.title, charLen: len };
     });
+    return { chapters, chaptersMeta, totalChars };
+  }
+
+  // onProgress(pct, label)：驱动封面上的圆圈进度（35→100）
+  async function importCloudJSON(id, data, label, coverUrl, onProgress, contentRev = 1) {
+    const set = typeof onProgress === 'function' ? onProgress : () => {};
+    const title = (data.book || data.title || label || '未命名').trim();
+    const author = (data.author || '').trim();
+    const { chapters, chaptersMeta, totalChars } = parseCloudChapters(data);
+
+    set(36, '整理章节…');
 
     for (let i = 0; i < chapters.length; i++) {
       await DB.putChapter({ id: `${id}:${i}`, bookId: id, idx: i, paras: chapters[i].paras });
@@ -437,12 +441,33 @@ const Library = (() => {
     const book = {
       id, title, author, format: 'json', size: data.size || 0,
       addedAt: Date.now(), lastReadAt: Date.now(), totalChars,
-      chaptersMeta, progress: { chapter: 0, ratio: 0 }, bookmarks: [], highlights: [],
+      chaptersMeta, contentRev, progress: { chapter: 0, ratio: 0 }, bookmarks: [], highlights: [],
       cover,
     };
     await DB.putBook(book);
     set(100, '完成');
     return book;
+  }
+
+  // 内容修订更新：云端 rev 高于本地时静默重拉正文，保留进度/书签/划线/封面等阅读数据
+  async function updateCloudBookContent(id, data, rev) {
+    const local = await DB.getBook(id);
+    if (!local || local.format !== 'json') return false;
+    const { chapters, chaptersMeta, totalChars } = parseCloudChapters(data);
+    for (let i = 0; i < chapters.length; i++) {
+      await DB.putChapter({ id: `${id}:${i}`, bookId: id, idx: i, paras: chapters[i].paras });
+      if (i % 20 === 0) await new Promise(r => setTimeout(r, 0));
+    }
+    // 新章节数变少时清理残留旧章
+    for (let i = chapters.length; i < local.chaptersMeta.length; i++) {
+      await DB.deleteChapter(`${id}:${i}`);
+    }
+    const updated = Object.assign({}, local, { chaptersMeta, totalChars, contentRev: rev });
+    if (updated.progress && updated.progress.chapter >= chapters.length) {
+      updated.progress = { chapter: Math.max(0, chapters.length - 1), ratio: 0 };
+    }
+    await DB.putBook(updated);
+    return true;
   }
 
   // 防重入：避免多标签/重复调用同时导入
@@ -482,14 +507,18 @@ const Library = (() => {
       YueduToast('《丰饶之海》已拆分为四卷');
     }
 
-    // 找出本地尚未同步的书
+    // 找出本地尚未同步的书，以及需要内容修订的书
     const pending = [];
+    const updates = [];
     for (const item of list) {
       const id = cloudId(item.title || item.file);
-      if (await DB.getBook(id)) continue;
-      pending.push({ id, item });
+      const local = await DB.getBook(id);
+      if (!local) { pending.push({ id, item }); continue; }
+      // 内容版本号：云端 rev 高于本地时重拉正文（保留阅读进度/书签/划线）
+      const wantRev = item.rev || 1;
+      if (local.format === 'json' && (local.contentRev || 1) < wantRev) updates.push({ id, item, rev: wantRev });
     }
-    if (!pending.length) return;
+    if (!pending.length && !updates.length) return;
 
     // 先在书架上铺好"下载中"占位卡片（每本封面一个圆圈），再逐本下载
     const shelf = $('bookshelf');
@@ -508,7 +537,7 @@ const Library = (() => {
       try {
         set(2, '连接服务器…');
         const data = await fetchBookJSON(p.item.file, set); // 0→35，真实字节进度
-        await importCloudJSON(p.id, data, p.item.title, p.item.cover || data.cover, set); // 35→100
+        await importCloudJSON(p.id, data, p.item.title, p.item.cover || data.cover, set, p.item.rev || 1); // 35→100
         card.replaceWith(makeCard(await DB.getBook(p.id)));
         imported++;
       } catch (e) {
@@ -516,6 +545,19 @@ const Library = (() => {
         failed++;
         updateDownloadCard(card, 0, '下载失败', true);
       }
+    }
+
+    // 静默更新已有书籍的正文修订版（无进度卡片，不打断阅读）
+    const updatedTitles = [];
+    for (const u of updates) {
+      try {
+        const data = await fetchBookJSON(u.item.file, () => {});
+        if (await updateCloudBookContent(u.id, data, u.rev)) updatedTitles.push(u.item.title || data.book);
+      } catch (e) { console.warn('云书架内容更新失败：', u.item.file, e); }
+    }
+    if (updatedTitles.length) {
+      await refresh();
+      YueduToast(`已更新 ${updatedTitles.length} 本书的修订版内容`);
     }
     if (imported || failed) {
       await refresh(); // 清掉失败占位卡片、校正顺序

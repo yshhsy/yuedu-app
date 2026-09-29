@@ -91,6 +91,9 @@ const DB = (() => {
     putChapter(rec) {
       return open().then(() => reqP(tx('chapters', 'readwrite').put(rec)));
     },
+    deleteChapter(id) {
+      return open().then(() => reqP(tx('chapters', 'readwrite').delete(id)));
+    },
     /* ---------- kv ---------- */
     async getKV(key, def = null) {
       const db = await open();

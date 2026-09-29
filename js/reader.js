@@ -2,8 +2,8 @@
  * reader.js — 阅读器（纵向连续滚动模式）
  *  - 章节无缝拼接，滚动到边缘自动加载前后章（双端加载）
  *  - 滚动驱动进度/章节标题/进度条，全局百分比跨章累计
- *  - 左右轻滑翻一屏、轻点区域翻屏、中间切换工具栏
- *  - 顶栏隐藏后点击任意处或下拉唤出（返回永远可达）
+ *  - 纵向连续滚动阅读，上下滑动即翻页（唯一翻页方式）
+ *  - 轻点任意处切换工具栏；顶栏常驻返回入口
  *  - 进度记忆、目录跳转、书签、划线、复制
  *  - 阅读设置（字号/行距/字体/主题/亮度）、阅读计时
  * ================================================================ */
@@ -261,6 +261,7 @@ const Reader = (() => {
     if (!rendered.includes(idx)) await renderChaptersAround(idx);
     curChapter = idx;
     scrollToRatio(idx, ratio);
+    $(els.chapterTitle).textContent = (book.chaptersMeta[idx] || {}).title || '';
     refreshUI();
     scheduleSave();
   }
@@ -378,17 +379,20 @@ const Reader = (() => {
       if (rendered[0] <= 0) toast('已经到开头啦');
       return;
     }
+    const from = v.scrollTop;
     v.scrollBy({ top: dir * Math.round(0.92 * vh()), behavior: 'smooth' });
+    // 兜底：个别环境（后台标签页 rAF 冻结）smooth 动画不执行，350ms 后未动则直接跳转
+    setTimeout(() => {
+      if (Math.abs(v.scrollTop - from) < 2) v.scrollBy({ top: dir * Math.round(0.92 * vh()), behavior: 'auto' });
+    }, 350);
   }
-
-  async function nextPage() { scrollScreen(1); }
-  async function prevPage() { scrollScreen(-1); }
 
   async function gotoChapter(idx, ratio = 0) {
     if (idx < 0 || idx >= book.chaptersMeta.length) return;
     await renderChaptersAround(idx);
     curChapter = idx;
     scrollToRatio(idx, ratio);
+    $(els.chapterTitle).textContent = (book.chaptersMeta[idx] || {}).title || '';
     refreshUI();
     closeSheet('toc-panel');
   }
@@ -669,20 +673,8 @@ const Reader = (() => {
       const dx = t.clientX - touch.x0, dy = t.clientY - touch.y0;
       const dt = Date.now() - touch.t0;
       if (dt > 500) { suppressClick = true; return; }      // 长按（选词）不响应
-      // 左右横滑：翻一屏
-      if (Math.abs(dx) > 45 && Math.abs(dx) > Math.abs(dy) * 1.5) {
-        suppressClick = true;
-        scrollScreen(dx < 0 ? 1 : -1);
-        return;
-      }
-      // 顶栏隐藏时在页面顶部下拉：唤出顶栏（正常往下滑阅读不受影响）
-      if (!barsVisible && dy > 40 && Math.abs(dy) > Math.abs(dx) * 2 && vp().scrollTop <= 2) {
-        suppressClick = true;
-        setBarsVisible(true);
-        return;
-      }
       // 轻点（标记 suppressClick，拦截紧随其后的合成 click，避免双触发）
-      if (Math.abs(dx) < 14 && Math.abs(dy) < 14) { suppressClick = true; handleTap(t.clientX, window.innerWidth); }
+      if (Math.abs(dx) < 14 && Math.abs(dy) < 14) { suppressClick = true; handleTap(); }
       // 其余（纵向滑动）交给浏览器原生滚动
     }, { passive: true });
 
@@ -694,20 +686,15 @@ const Reader = (() => {
 
     document.addEventListener('keydown', (e) => {
       if (!book || $(els.screen).classList.contains('hidden')) return;
-      if (e.key === 'ArrowRight' || e.key === 'PageDown') scrollScreen(1);
-      if (e.key === 'ArrowLeft' || e.key === 'PageUp') scrollScreen(-1);
+      if (e.key === 'PageDown' || e.key === 'ArrowDown') scrollScreen(1);
+      if (e.key === 'PageUp' || e.key === 'ArrowUp') scrollScreen(-1);
       if (e.key === ' ' && !e.repeat && e.target === document.body) { e.preventDefault(); scrollScreen(1); }
       if (e.key === 'Escape') closeSheets();
     });
   }
 
-  /** 点击区域：隐藏态点击任意处唤出顶栏；显示态左/右翻屏、中间收起 */
-  function handleTap(x, w) {
-    if (!barsVisible) { setBarsVisible(true); return; }
-    if (x < w * 0.3) scrollScreen(-1);
-    else if (x > w * 0.7) scrollScreen(1);
-    else setBarsVisible(false);
-  }
+  /** 轻点：切换工具栏显隐（正文上下滑动翻页，不涉及点击翻页） */
+  function handleTap() { toggleBars(); }
 
   function setBarsVisible(v) {
     barsVisible = v;
@@ -727,7 +714,6 @@ const Reader = (() => {
 
   function bind() {
     $('btn-back').addEventListener('click', close);
-    $('btn-back-float').addEventListener('click', (e) => { e.stopPropagation(); close(); });
     $('btn-bookmark').addEventListener('click', toggleBookmark);
 
     // 主题切换只换 CSS 变量，无需重排正文
@@ -752,7 +738,8 @@ const Reader = (() => {
     $('brightness-slider').addEventListener('input', (e) => { S.brightness = parseInt(e.target.value); applySettings(); });
     $('brightness-slider').addEventListener('change', () => { saveSettings(); });
     document.querySelectorAll('#font-family-options .seg-btn').forEach(b => {
-      b.addEventListener('click', () => setSetting('fontFamily', b.dataset.font));
+      // 字体切换只改 CSS 变量，浏览器自动重排，无需重建 DOM（避免正文闪跳）
+      b.addEventListener('click', () => setSetting('fontFamily', b.dataset.font, false));
     });
     document.querySelectorAll('#theme-options .theme-swatch').forEach(b => {
       b.addEventListener('click', () => setSetting('theme', b.dataset.theme, false));
@@ -808,7 +795,7 @@ const Reader = (() => {
   /* ================= 对外 ================= */
 
   return {
-    open, close, nextPage, prevPage, gotoChapter,
+    open, close, gotoChapter,
     loadSettings, applySettings, todaySeconds, flushReadingTime,
     bind, closeSheets,
   };
