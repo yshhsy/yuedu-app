@@ -136,9 +136,10 @@ button { font-family:inherit; border:none; background:none; cursor:pointer; colo
 }
 #reader-viewport::-webkit-scrollbar { display:none; width:0; height:0; }
 #reader-content {
-  width:100%; min-height:100%; box-sizing:border-box;
-  padding:8vh 22px 16vh;
-  font-size:var(--rd-fs); line-height:var(--rd-lh); font-family:var(--rd-font);
+width:100%; min-height:100%; box-sizing:border-box;
+padding:8vh 22px 16vh;
+font-size:var(--rd-fs); line-height:var(--rd-lh); font-family:var(--rd-font);
+transition:opacity .18s ease;
 }
 #reader-content .rd-p { margin:0 0 1.1em; text-align:justify; }
 #reader-content .rd-p:first-child { margin-top:0; }
@@ -232,6 +233,8 @@ button { font-family:inherit; border:none; background:none; cursor:pointer; colo
 .toc-item .toc-pct { font-size:11px; color:var(--lib-fg-2); flex-shrink:0; }
 .toc-item:active { background:#f2f2f2; }
 .toc-item.current { color:var(--accent); font-weight:700; background:#f0f4ff; }
+.toc-item.read { color:var(--lib-fg-2); }
+.toc-item.read .toc-pct { color:#c3c3c6; }
 .toc-item .toc-dot { width:5px; height:5px; border-radius:50%; background:var(--accent); flex-shrink:0; }
 
 /* 设置 */

@@ -1,17 +1,17 @@
 /* Service Worker — 应用外壳缓存（离线可用） */
 'use strict';
 
-const CACHE = 'yuedu-v12';
+const CACHE = 'yuedu-v13';
 const SHELL = [
   './',
   './index.html',
-  './css/style.css?v=11',
-  './js/db.js?v=11',
-  './js/parser.js?v=11',
-  './js/engine.js?v=11',
-  './js/library.js?v=11',
-  './js/reader.js?v=11',
-  './js/app.js?v=11',
+  './css/style.css?v=12',
+  './js/db.js?v=12',
+  './js/parser.js?v=12',
+  './js/engine.js?v=12',
+  './js/library.js?v=12',
+  './js/reader.js?v=12',
+  './js/app.js?v=12',
   './lib/jszip.min.js',
   './manifest.webmanifest',
   './icons/icon-32.png',

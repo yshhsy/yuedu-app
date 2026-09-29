@@ -102,9 +102,12 @@ const Reader = (() => {
     $(els.chapterTitle).textContent = '';
     setBarsVisible(true);
 
+    cnt().style.opacity = '0';   // 打开时淡入，避免渲染闪跳
     await renderChaptersAround(curChapter);
     const ratio = (book.progress && book.progress.ratio) || 0;
     scrollToRatio(curChapter, ratio);
+    await doubleRaf();
+    cnt().style.opacity = '1';
     $(els.chapterTitle).textContent = (book.chaptersMeta[curChapter] || {}).title || '';
     refreshUI();
     buildTocList();
@@ -251,7 +254,7 @@ const Reader = (() => {
     if (!$(els.tocPanel).classList.contains('hidden')) buildTocList();
   }
 
-  /* ================= 双端滚动加载 ================= */
+  /* ================= 增量滚动加载 ================= */
 
   function onScroll() {
     if (scrollBusy) return;
@@ -283,30 +286,44 @@ const Reader = (() => {
     }
   }
 
-  /** 底部追加下一章（超上限时丢弃最前章，补偿滚动位置） */
+  /** 底部追加下一章：增量 DOM，不重建整页（无闪烁无跳动）；超上限时丢弃最前章并补偿滚动位置 */
   async function appendChapter(idx) {
-    const st = vp().scrollTop;
-    const beforeH = cnt().scrollHeight;
+    await chapterParas(idx);
     rendered.push(idx);
-    if (rendered.length > MAX_RENDER) rendered.shift();
-    await renderAll();
-    await doubleRaf();
-    const v = vp();
-    v.scrollTop = st + (cnt().scrollHeight - beforeH);
-    if (v.scrollTop + v.clientHeight > v.scrollHeight) v.scrollTop = Math.max(0, v.scrollHeight - v.clientHeight);
+    const c = cnt();
+    if (rendered.length > MAX_RENDER) {
+      const drop = rendered.shift();
+      const node = c.querySelector(`.rd-chapter[data-idx="${drop}"]`);
+      if (node) { const h = node.offsetHeight; node.remove(); vp().scrollTop = Math.max(0, vp().scrollTop - h); }
+      parasCache.delete(drop);
+    }
+    c.insertAdjacentHTML('beforeend', chapterHTML(idx));
+    syncEndMark();
   }
 
-  /** 顶部预加载上一章（滚动后丢弃最后章） */
+  /** 顶部预载上一章：增量 DOM；超上限时丢弃最后章 */
   async function prependChapter(idx) {
-    const st = vp().scrollTop;
-    const beforeH = cnt().scrollHeight;
+    await chapterParas(idx);
     rendered.unshift(idx);
-    if (rendered.length > MAX_RENDER) rendered.pop();
-    await renderAll();
-    await doubleRaf();
-    const v = vp();
-    v.scrollTop = st + (cnt().scrollHeight - beforeH);
-    if (v.scrollTop > v.scrollHeight - v.clientHeight) v.scrollTop = Math.max(0, v.scrollHeight - v.clientHeight);
+    const c = cnt();
+    if (rendered.length > MAX_RENDER) {
+      const drop = rendered.pop();
+      const node = c.querySelector(`.rd-chapter[data-idx="${drop}"]`);
+      if (node) node.remove();
+      parasCache.delete(drop);
+    }
+    c.insertAdjacentHTML('afterbegin', chapterHTML(idx));
+    vp().scrollTop += c.firstElementChild.offsetHeight;
+    syncEndMark();
+  }
+
+  /** 维护“全书完”标记：最后一章在窗口内则显示，否则移除 */
+  function syncEndMark() {
+    const c = cnt();
+    const has = !!c.querySelector('.rd-end');
+    const should = rendered[rendered.length - 1] === book.chaptersMeta.length - 1;
+    if (should && !has) c.insertAdjacentHTML('beforeend', '<div class="rd-end">— 全书完 —</div>');
+    if (!should && has) c.querySelector('.rd-end').remove();
   }
 
   /* ================= 翻屏 ================= */
@@ -445,8 +462,10 @@ const Reader = (() => {
     let cum = 0;
     meta.forEach((m, i) => {
       const item = document.createElement('button');
-      item.className = 'toc-item' + (i === curChapter ? ' current' : '');
-      const dot = i === curChapter ? '<span class="toc-dot"></span>' : '<span style="width:5px;flex-shrink:0"></span>';
+      const isCur = i === curChapter;
+      const isRead = i < curChapter;
+      item.className = 'toc-item' + (isCur ? ' current' : '') + (isRead ? ' read' : '');
+      const dot = isCur ? '<span class="toc-dot"></span>' : '<span style="width:5px;flex-shrink:0"></span>';
       const pct = Math.min(100, Math.round((cum + m.charLen) / Math.max(1, book.totalChars) * 100));
       item.innerHTML = `${dot}<span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${Engine.esc(m.title || `第 ${i + 1} 章`)}</span><span class="toc-pct">${pct}%</span>`;
       item.addEventListener('click', () => gotoChapter(i, 0));
@@ -616,8 +635,8 @@ const Reader = (() => {
         scrollScreen(dx < 0 ? 1 : -1);
         return;
       }
-      // 顶栏隐藏时向下拉：唤出顶栏
-      if (!barsVisible && dy > 40 && Math.abs(dy) > Math.abs(dx) * 2) {
+      // 顶栏隐藏时在页面顶部下拉：唤出顶栏（正常往下滑阅读不受影响）
+      if (!barsVisible && dy > 40 && Math.abs(dy) > Math.abs(dx) * 2 && vp().scrollTop <= 2) {
         suppressClick = true;
         setBarsVisible(true);
         return;
@@ -674,14 +693,13 @@ const Reader = (() => {
       setSetting('theme', S.theme === 'night' ? 'day' : 'night');
     });
 
-    // 进度条：拖动 → 全局百分比定位（节流）；松手 → 保存
+    // 进度条：拖动时只实时显示百分比（不重排不卡）；松手才跨章定位
     const slider = $('progress-slider');
-    let sliderTimer = null;
     slider.addEventListener('input', () => {
-      clearTimeout(sliderTimer);
-      sliderTimer = setTimeout(() => seekToPercent(parseFloat(slider.value) / 100), 90);
+      const pct = Math.round(parseFloat(slider.value) * 100) / 100;
+      $('progress-text').textContent = `${pct}%`;
     });
-    slider.addEventListener('change', () => scheduleSave());
+    slider.addEventListener('change', () => seekToPercent(parseFloat(slider.value) / 100));
 
     // 设置面板
     $('btn-more').addEventListener('click', () => openSheet('settings-panel'));
