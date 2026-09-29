@@ -1,19 +1,26 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
   <defs>
-    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
-      <stop offset="0" stop-color="#3f6df6"/>
-      <stop offset="1" stop-color="#2643b0"/>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#4C7BFF"/>
+      <stop offset="1" stop-color="#2A3FD0"/>
     </linearGradient>
   </defs>
-  <rect x="12" y="12" width="488" height="488" rx="112" fill="url(#bg)"/>
-  <g transform="translate(256 258)">
-    <g transform="rotate(-12 -69 -2)">
-      <rect x="-134" y="-92" width="130" height="188" rx="24" fill="#ffffff"/>
-    </g>
-    <g transform="rotate(12 69 -2)">
-      <rect x="4" y="-92" width="130" height="188" rx="24" fill="#ffffff"/>
-    </g>
-    <rect x="-8" y="-86" width="16" height="176" rx="7" fill="#1d3799" opacity="0.9"/>
+  <!-- 圆角方形渐变底 -->
+  <rect x="10" y="10" width="492" height="492" rx="115" fill="url(#bg)"/>
+  <!-- 左页 -->
+  <g transform="rotate(-10 176 286)">
+    <rect x="46" y="66" width="155" height="220" rx="30" fill="#ffffff"/>
+    <rect x="186" y="76" width="35" height="200" rx="15" fill="rgba(20,40,120,.12)"/>
   </g>
-  <rect x="228" y="80" width="56" height="104" rx="12" fill="#ffb454"/>
+  <!-- 右页 -->
+  <g transform="rotate(10 336 286)">
+    <rect x="311" y="66" width="155" height="220" rx="30" fill="#ffffff"/>
+    <rect x="291" y="76" width="35" height="200" rx="15" fill="rgba(20,40,120,.12)"/>
+  </g>
+  <!-- 中缝（书脊） -->
+  <rect x="244" y="148" width="24" height="276" rx="10" fill="rgba(30,45,120,.28)"/>
+  <rect x="251" y="158" width="10" height="256" rx="5" fill="rgba(255,255,255,.35)"/>
+  <!-- 经典书签（顶部橙色、底部收尖） -->
+  <path d="M232 36 L280 36 L280 180 L256 212 L232 180 Z" fill="#ff9e24"/>
+  <rect x="242" y="48" width="12" height="120" rx="6" fill="rgba(255,210,120,.7)"/>
 </svg>
