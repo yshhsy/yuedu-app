@@ -1,11 +1,18 @@
 {
-  "version": 2,
-  "note": "云书架预置清单：电脑端添加书籍后，手机端打开 App 会自动同步导入。每本书的 JSON 结构见 books/ 目录。",
+  "version": 4,
+  "note": "云书架预置清单：电脑端添加书籍后，手机端打开 App 会自动同步导入。每本书的 JSON 结构见 books/ 目录；cover 为同源实体书封面（随站部署，无防盗链问题）。",
   "books": [
     {
       "file": "books/丰饶之海.json",
+      "cover": "books/丰饶之海-cover.jpg",
       "title": "丰饶之海",
       "author": "三岛由纪夫"
+    },
+    {
+      "file": "books/挪威的森林.json",
+      "cover": "books/挪威的森林-cover.jpg",
+      "title": "挪威的森林",
+      "author": "村上春树"
     }
   ]
 }

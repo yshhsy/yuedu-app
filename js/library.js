@@ -277,8 +277,19 @@ const Library = (() => {
     return 'cloud' + h.toString(36);
   }
 
+  // 拉取同源封面图（随站部署，无防盗链）
+  async function fetchCover(url) {
+    if (!url) return null;
+    try {
+      const res = await fetch(url, { cache: 'no-store' });
+      if (!res.ok) return null;
+      const blob = await res.blob();
+      return blob.type.startsWith('image/') ? blob : null;
+    } catch (e) { return null; }
+  }
+
   // 解析 {book, author, chapters:[{number,title,paragraphs:[str...]}]} → {title, author, chapters:[{title, paras}]}
-  async function importCloudJSON(id, data, label) {
+  async function importCloudJSON(id, data, label, coverUrl) {
     const overlay = $('import-progress');
     const fill = $('ip-bar-fill');
     const sub = $('ip-sub');
@@ -289,11 +300,11 @@ const Library = (() => {
       title: (ch.title || '').trim() || `第 ${i + 1} 章`,
       paras: (ch.paragraphs || []).map(t => ({ text: (typeof t === 'string' ? t : (t && t.text) || '').trim() })).filter(p => p.text),
     })).filter(ch => ch.paras.length);
+    const set = (pct, msg) => { fill.style.width = `${pct}%`; sub.textContent = msg; };
 
     overlay.classList.remove('hidden');
     titleEl.textContent = `正在同步《${title}》`;
-    fill.style.width = '4%';
-    sub.textContent = '整理章节…';
+    set(6, '整理章节…');
 
     let totalChars = 0;
     const chaptersMeta = chapters.map(ch => {
@@ -306,14 +317,14 @@ const Library = (() => {
 
     for (let i = 0; i < chapters.length; i++) {
       await DB.putChapter({ id: `${id}:${i}`, bookId: id, idx: i, paras: chapters[i].paras });
-      fill.style.width = `${10 + Math.round(80 * (i + 1) / chapters.length)}%`;
-      sub.textContent = `章节 ${i + 1}/${chapters.length}`;
+      set(10 + Math.round(80 * (i + 1) / chapters.length), `保存章节 ${i + 1}/${chapters.length}`);
       if (i % 20 === 0) await new Promise(r => setTimeout(r, 0));
     }
 
-    fill.style.width = '93%';
-    sub.textContent = '生成封面…';
-    const cover = await generateCover(title, author);
+    // 封面：优先使用云书架随站部署的实体书封面，失败再生成
+    set(92, '下载封面…');
+    let cover = await fetchCover(coverUrl);
+    if (!cover) { set(94, '生成封面…'); cover = await generateCover(title, author); }
 
     const book = {
       id, title, author, format: 'json', size: data.size || 0,
@@ -322,6 +333,8 @@ const Library = (() => {
       cover,
     };
     await DB.putBook(book);
+    set(100, '完成');
+    await new Promise(r => setTimeout(r, 350)); // 让"完成"有视觉停留
     overlay.classList.add('hidden');
     return book;
   }
@@ -352,10 +365,17 @@ const Library = (() => {
       const id = cloudId(item.title || item.file);
       if (await DB.getBook(id)) continue; // 已同步过则跳过
       try {
+        // 下载阶段可视化
+        const overlay = $('import-progress');
+        overlay.classList.remove('hidden');
+        $('ip-title').textContent = `正在下载《${item.title || ''}》`;
+        $('ip-bar-fill').style.width = '2%';
+        $('ip-sub').textContent = '连接服务器…';
         const res = await fetch(item.file, { cache: 'no-store' });
         if (!res.ok) throw new Error('HTTP ' + res.status);
+        $('ip-sub').textContent = '解析书籍…';
         const data = await res.json();
-        await importCloudJSON(id, data, item.title);
+        await importCloudJSON(id, data, item.title, item.cover || data.cover);
         imported++;
       } catch (e) {
         console.error('云书架同步失败：', item.file, e);

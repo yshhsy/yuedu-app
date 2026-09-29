@@ -200,8 +200,7 @@ const Reader = (() => {
     if (!book) return;
     const pct = Math.round(globalPercent() * 10000) / 100;
     $('progress-slider').value = pct;
-    const mins = remainingMinutes();
-    $('progress-text').textContent = mins > 1 ? `${pct}% · 约${mins}分钟` : `${pct}%`;
+    $('progress-text').textContent = `${pct}%`;
     updateBookmarkIcon();
     if (!$(els.tocPanel).classList.contains('hidden')) buildTocList();
   }
@@ -213,12 +212,6 @@ const Reader = (() => {
     const ratio = Engine.ratioForPage(page, pageCount);
     const curLen = (meta[chapterIdx] || {}).charLen || 1;
     return Math.max(0, Math.min(1, (cum + ratio * curLen) / Math.max(1, book.totalChars)));
-  }
-
-  function remainingMinutes() {
-    const pct = globalPercent();
-    const remChars = (1 - pct) * book.totalChars;
-    return Math.max(1, Math.round(remChars / cpm));
   }
 
   function updateBookmarkIcon() {

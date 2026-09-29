@@ -111,6 +111,7 @@ button { font-family:inherit; border:none; background:none; cursor:pointer; colo
 .bar-btn:active { background:rgba(128,128,128,.15); }
 .bar-btn svg { width:23px; height:23px; }
 .bar-btn.with-text svg { width:25px; height:25px; }
+.bar-btn.with-text { width:auto; padding:0 8px; gap:4px; }
 .bar-title { flex:1; min-width:0; text-align:center; padding:0 4px; }
 .bar-title .bt-book { display:block; font-size:15px; font-weight:600; overflow:hidden; white-space:nowrap; text-overflow:ellipsis; }
 .bar-title .bt-chapter { display:block; font-size:11px; color:var(--rd-fg-2); margin-top:1px; overflow:hidden; white-space:nowrap; text-overflow:ellipsis; }
