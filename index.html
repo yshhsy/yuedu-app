@@ -13,7 +13,7 @@
 <link rel="icon" href="icons/icon-32.png" sizes="32x32" type="image/png">
 <link rel="icon" href="icons/icon-16.png" sizes="16x16" type="image/png">
 <link rel="apple-touch-icon" href="icons/icon-180.png">
-<link rel="stylesheet" href="css/style.css?v=10">
+<link rel="stylesheet" href="css/style.css?v=11">
 </head>
 <body>
 <div id="app">
@@ -74,10 +74,15 @@
       <div id="reader-viewport">
         <div id="reader-content"></div>
       </div>
-      <div id="brightness-veil" class="hidden"></div>
-    </div>
+<div id="brightness-veil" class="hidden"></div>
+</div>
 
-    <!-- 底部栏 -->
+<!-- 常驻悬浮返回：顶栏隐藏时也能一键回书架 -->
+<button id="btn-back-float" aria-label="返回书架">
+<svg viewBox="0 0 24 24"><path d="M15 5l-7 7 7 7" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></svg>
+</button>
+
+<!-- 底部栏 -->
     <div id="reader-bottombar" class="reader-bar">
       <button id="btn-toc" class="bar-btn with-text" aria-label="目录">
         <svg viewBox="0 0 24 24"><path d="M4 6h16M4 12h16M4 18h10" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/></svg>
@@ -214,11 +219,11 @@
 </div>
 
 <script src="lib/jszip.min.js"></script>
-<script src="js/db.js?v=10"></script>
-<script src="js/parser.js?v=10"></script>
-<script src="js/engine.js?v=10"></script>
-<script src="js/library.js?v=10"></script>
-<script src="js/reader.js?v=10"></script>
-<script src="js/app.js?v=10"></script>
+<script src="js/db.js?v=11"></script>
+<script src="js/parser.js?v=11"></script>
+<script src="js/engine.js?v=11"></script>
+<script src="js/library.js?v=11"></script>
+<script src="js/reader.js?v=11"></script>
+<script src="js/app.js?v=11"></script>
 </body>
 </html>

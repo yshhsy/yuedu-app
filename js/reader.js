@@ -667,6 +667,7 @@ const Reader = (() => {
 
   function bind() {
     $('btn-back').addEventListener('click', close);
+    $('btn-back-float').addEventListener('click', (e) => { e.stopPropagation(); close(); });
     $('btn-bookmark').addEventListener('click', toggleBookmark);
 
     $('btn-theme').addEventListener('click', () => {
