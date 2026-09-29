@@ -61,9 +61,11 @@ const Reader = (() => {
   function applySettings() {
     const scr = $(els.screen);
     scr.setAttribute('data-theme', S.theme);
-    // 夜间/白昼同步浏览器系统栏颜色（灵动岛周围不突兀）
+    // 夜间/白昼同步浏览器系统栏颜色（灵动岛周围不突兀）；夜间同时带动书架与面板整体变暗
+    const THEME_COLORS = { day: '#f6f6f4', sepia: '#f2e8d4', green: '#dde7d2', night: '#141414' };
     const meta = document.querySelector('meta[name="theme-color"]');
-    if (meta) meta.setAttribute('content', S.theme === 'night' ? '#141414' : '#f6f6f4');
+    if (meta) meta.setAttribute('content', THEME_COLORS[S.theme] || '#f6f6f4');
+    document.body.classList.toggle('app-dark', S.theme === 'night');
     const c = cnt();
     c.style.setProperty('--rd-fs', S.fontSize + 'px');
     c.style.setProperty('--rd-lh', S.lineHeight);
@@ -179,7 +181,13 @@ const Reader = (() => {
   }
 
   function doubleRaf() {
-    return new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)));
+    // 标签页被遮挡（分屏/后台）时 rAF 不会触发，加超时兜底避免打开书籍永久挂起
+    return new Promise(r => {
+      let done = false;
+      const finish = () => { if (!done) { done = true; r(); } };
+      requestAnimationFrame(() => requestAnimationFrame(finish));
+      setTimeout(finish, 120);
+    });
   }
 
   /** 章节位置表 idx -> {top, height}（相对 content 内容区） */
@@ -275,18 +283,30 @@ const Reader = (() => {
     scrollBusy = true;
     requestAnimationFrame(() => {
       scrollBusy = false;
+      if (!book) return;
       const idx = currentChapterIdx();
       const changed = idx !== curChapter;
       curChapter = idx;
       const meta = book.chaptersMeta[curChapter] || {};
-      $(els.chapterTitle).textContent = meta.title || '';
-      const pct = Math.round(globalPercent() * 10000) / 100;
-      $('progress-slider').value = pct;
-      $('progress-text').textContent = `${pct}%`;
+      if (changed) $(els.chapterTitle).textContent = meta.title || '';
+      updateProgressUI();
       updateBookmarkIcon();
       scheduleSave();
       maybeLoadMore();
     });
+  }
+
+  /** 底栏进度文本：百分比 + 按个人阅读速度估算的剩余时间 */
+  function updateProgressUI() {
+    const pct = Math.round(globalPercent() * 10000) / 100;
+    $('progress-slider').value = pct;
+    const remainChars = Math.max(0, book.totalChars * (1 - pct / 100));
+    let remain = '';
+    if (remainChars > 500) {
+      const mins = Math.round(remainChars / Math.max(60, cpm));
+      remain = mins >= 60 ? `剩${Math.floor(mins / 60)}时${mins % 60}分` : `剩${mins}分钟`;
+    }
+    $('progress-text').textContent = remain ? `${pct}% · ${remain}` : `${pct}%`;
   }
 
   function maybeLoadMore() {
@@ -347,7 +367,11 @@ const Reader = (() => {
     const atEnd = v.scrollTop + v.clientHeight >= v.scrollHeight - 2;
     const atStart = v.scrollTop <= 2;
     if (dir > 0 && atEnd) {
-      if (rendered[rendered.length - 1] >= book.chaptersMeta.length - 1) toast('已经是最后一页啦');
+      const last = rendered[rendered.length - 1];
+      if (last < book.chaptersMeta.length - 1) {
+        // 末尾章节尚未渲染：先增量加载再翻页，避免“点了没反应”
+        appendChapter(last + 1).then(() => scrollScreen(dir));
+      } else toast('已经是最后一页啦');
       return;
     }
     if (dir < 0 && atStart) {
@@ -373,9 +397,7 @@ const Reader = (() => {
 
   function refreshUI() {
     if (!book) return;
-    const pct = Math.round(globalPercent() * 10000) / 100;
-    $('progress-slider').value = pct;
-    $('progress-text').textContent = `${pct}%`;
+    updateProgressUI();
     updateBookmarkIcon();
     if (!$(els.tocPanel).classList.contains('hidden')) buildTocList();
   }
@@ -659,8 +681,8 @@ const Reader = (() => {
         setBarsVisible(true);
         return;
       }
-      // 轻点
-      if (Math.abs(dx) < 14 && Math.abs(dy) < 14) handleTap(t.clientX, window.innerWidth);
+      // 轻点（标记 suppressClick，拦截紧随其后的合成 click，避免双触发）
+      if (Math.abs(dx) < 14 && Math.abs(dy) < 14) { suppressClick = true; handleTap(t.clientX, window.innerWidth); }
       // 其余（纵向滑动）交给浏览器原生滚动
     }, { passive: true });
 
@@ -674,6 +696,7 @@ const Reader = (() => {
       if (!book || $(els.screen).classList.contains('hidden')) return;
       if (e.key === 'ArrowRight' || e.key === 'PageDown') scrollScreen(1);
       if (e.key === 'ArrowLeft' || e.key === 'PageUp') scrollScreen(-1);
+      if (e.key === ' ' && !e.repeat && e.target === document.body) { e.preventDefault(); scrollScreen(1); }
       if (e.key === 'Escape') closeSheets();
     });
   }
@@ -707,8 +730,9 @@ const Reader = (() => {
     $('btn-back-float').addEventListener('click', (e) => { e.stopPropagation(); close(); });
     $('btn-bookmark').addEventListener('click', toggleBookmark);
 
+    // 主题切换只换 CSS 变量，无需重排正文
     $('btn-theme').addEventListener('click', () => {
-      setSetting('theme', S.theme === 'night' ? 'day' : 'night');
+      setSetting('theme', S.theme === 'night' ? 'day' : 'night', false);
     });
 
     // 进度条：拖动时只实时显示百分比（不重排不卡）；松手才跨章定位
@@ -731,7 +755,7 @@ const Reader = (() => {
       b.addEventListener('click', () => setSetting('fontFamily', b.dataset.font));
     });
     document.querySelectorAll('#theme-options .theme-swatch').forEach(b => {
-      b.addEventListener('click', () => setSetting('theme', b.dataset.theme));
+      b.addEventListener('click', () => setSetting('theme', b.dataset.theme, false));
     });
 
     // 目录

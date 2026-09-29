@@ -105,6 +105,16 @@ const Library = (() => {
 
   /* ================= 渲染 ================= */
 
+  /** 坏封面兜底：将加载失败的封面图替换为文字封面 */
+  function fallbackCover(img) {
+    const cover = img.parentElement;
+    if (!cover || !cover.classList.contains('book-cover')) return;
+    const card = cover.closest('.book-card');
+    const title = card && card.querySelector('.b-title') ? card.querySelector('.b-title').textContent : '';
+    const author = card && card.querySelector('.b-author') ? card.querySelector('.b-author').textContent : '';
+    cover.innerHTML = `<div class="cover-fallback"><span class="cf-title">${Engine.esc(title || '未命名')}</span><span class="cf-author">${Engine.esc(author || '')}</span></div>`;
+  }
+
   async function refresh() {
     const books = await DB.allBooks();
     // 存量迁移：Blob 封面 → dataURL 字符串（一次性，写入后永久修复）
@@ -122,6 +132,11 @@ const Library = (() => {
     shelf.innerHTML = '';
     $('empty-state').classList.toggle('hidden', books.length > 0);
     books.forEach(b => shelf.appendChild(makeCard(b)));
+    // dataURL 封面可能在插入 DOM 前就解码失败（error 事件来不及冒泡），主动扫一遍
+    shelf.querySelectorAll('.book-cover img').forEach(img => {
+      if (img.complete && img.naturalWidth === 0) fallbackCover(img);
+      else img.addEventListener('error', () => fallbackCover(img), { once: true });
+    });
     updateTodayMinutes();
   }
 
