@@ -117,7 +117,7 @@ const Library = (() => {
       b.progress = { chapter: 0, ratio: 0 };
       await DB.putBook(b);
       closeSheets();
-      toast('已从头开始');
+      YueduToast('已从头开始');
       refresh();
     };
     const delBtn = $('act-delete');
@@ -127,7 +127,7 @@ const Library = (() => {
       if (!armed) { armed = true; delBtn.textContent = '再次点击确认删除'; setTimeout(() => { armed = false; delBtn.textContent = '删除本书'; }, 3000); return; }
       await DB.deleteBook(b.id);
       closeSheets();
-      toast('已删除');
+      YueduToast('已删除');
       refresh();
     };
     openSheet('action-sheet');
@@ -145,10 +145,10 @@ const Library = (() => {
     for (const file of files) {
       try {
         await importOne(file);
-        toast(`《${file.name.replace(/\.(txt|epub)$/i, '')}》导入成功`);
+        YueduToast(`《${file.name.replace(/\.(txt|epub)$/i, '')}》导入成功`);
       } catch (e) {
         console.error(e);
-        toast(`《${file.name}》导入失败：${e.message || '格式不支持'}`);
+        YueduToast(`《${file.name}》导入失败：${e.message || '格式不支持'}`);
       }
     }
     await refresh();
@@ -265,7 +265,7 @@ const Library = (() => {
       const file = new File([blob], name, { type: blob.type || 'text/plain' });
       await importFiles([file]);
     } catch (e) {
-      toast('链接导入失败：跨域限制或地址无效');
+      YueduToast('链接导入失败：跨域限制或地址无效');
     }
   }
 
@@ -326,8 +326,18 @@ const Library = (() => {
     return book;
   }
 
-  // 启动时自动同步云书架：读取 cloud-books.json 清单，把未导入的书拉取入库
+  // 防重入：避免多标签/重复调用同时导入
+  let syncing = false;
   async function syncCloud() {
+    if (syncing) return;
+    syncing = true;
+    try {
+      await _syncCloud();
+    } finally {
+      syncing = false;
+    }
+  }
+  async function _syncCloud() {
     let manifest;
     try {
       const res = await fetch('cloud-books.json', { cache: 'no-store' });
@@ -354,8 +364,8 @@ const Library = (() => {
     }
     if (imported || failed) {
       await refresh();
-      if (imported && !failed) toast(`云书架已就绪：《${list[0].title}》${imported > 1 ? ` 等 ${imported} 本` : ''}`);
-      else if (failed) toast(`云书架同步：${imported ? imported + ' 本成功，' : ''}${failed} 本失败`);
+      if (imported && !failed) YueduToast(`云书架已就绪：《${list[0].title}》${imported > 1 ? ` 等 ${imported} 本` : ''}`);
+      else if (failed) YueduToast(`云书架同步：${imported ? imported + ' 本成功，' : ''}${failed} 本失败`);
     }
   }
 
