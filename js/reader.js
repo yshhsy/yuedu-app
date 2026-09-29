@@ -101,8 +101,9 @@ const Reader = (() => {
     lastProgressChars = 0;
 
     $(els.bookTitle).textContent = book.title;
-    $(els.screen).classList.remove('hidden');
-    $(els.chapterTitle).textContent = '';
+    const scr = $(els.screen);
+    scr.classList.add('pre-enter');      // 先摆在屏幕右侧外（无过渡）
+    scr.classList.remove('hidden');
     setBarsVisible(true);
 
     cnt().style.opacity = '0';   // 打开时淡入，避免渲染闪跳
@@ -111,6 +112,7 @@ const Reader = (() => {
     scrollToRatio(curChapter, ratio);
     await doubleRaf();
     cnt().style.opacity = '1';
+    scr.classList.remove('pre-enter');  // 从右侧滑入到位
     $(els.chapterTitle).textContent = (book.chaptersMeta[curChapter] || {}).title || '';
     refreshUI();
     buildTocList();
@@ -124,8 +126,14 @@ const Reader = (() => {
       book = b; await flushProgress();
     } catch (e) { /* 存进度失败不阻断返回 */ }
     book = null;
-    $(els.screen).classList.add('hidden');
+    // 返回转场：向右滑出，动画结束后真正隐藏
+    const scr = $(els.screen);
+    scr.classList.add('slide-out', 'animating');
     closeSheets();
+    setTimeout(() => {
+      scr.classList.remove('slide-out', 'animating');
+      scr.classList.add('hidden');
+    }, 330);
     window.dispatchEvent(new CustomEvent('reader-closed'));
   }
 

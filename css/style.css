@@ -103,7 +103,14 @@ button { font-family:inherit; border:none; background:none; cursor:pointer; colo
 #reader-screen[data-theme="sepia"] { --rd-bg:#f2e8d4; --rd-fg:#4a3f2e; --rd-fg-2:#9b8c74; --rd-bar:rgba(242,232,212,.94); --rd-line:#e0d3b8; }
 #reader-screen[data-theme="green"] { --rd-bg:#dde7d2; --rd-fg:#2f3d2b; --rd-fg-2:#8ba37f; --rd-bar:rgba(221,231,210,.94); --rd-line:#c9d8bc; }
 #reader-screen[data-theme="night"] { --rd-bg:#141414; --rd-fg:#99999b; --rd-fg-2:#5f5f63; --rd-bar:rgba(20,20,20,.94); --rd-line:#2a2a2a; }
-#reader-screen { color:var(--rd-fg); transition:background .25s, color .25s; }
+#reader-screen { color:var(--rd-fg); transition:transform .32s cubic-bezier(.32,.72,.34,1), opacity .32s ease, background .25s, color .25s; }
+
+/* ============ 阅读页转场：打开从右滑入，返回向右滑出（跟随返回箭头方向） ============ */
+#reader-screen { z-index:10; transform:translateX(0); opacity:1; box-shadow:-8px 0 30px rgba(0,0,0,.10); will-change:transform, opacity; }
+#reader-screen.slide-out { transform:translateX(100%); opacity:.3; }
+#reader-screen.pre-enter  { transform:translateX(100%); opacity:.3; transition:none; }
+/* 转场期间保持可渲染，覆盖 .hidden 的 display:none */
+#reader-screen.animating { display:flex !important; }
 
 .reader-bar {
   position:absolute; left:0; right:0; z-index:20;
