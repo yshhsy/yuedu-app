@@ -269,6 +269,96 @@ const Library = (() => {
     }
   }
 
+  /* ================= 云书架（电脑导入 → 手机自动同步） ================= */
+
+  function cloudId(title) {
+    let h = 0;
+    for (const ch of title) h = (h * 31 + (ch.codePointAt(0) || 0)) >>> 0;
+    return 'cloud' + h.toString(36);
+  }
+
+  // 解析 {book, author, chapters:[{number,title,paragraphs:[str...]}]} → {title, author, chapters:[{title, paras}]}
+  async function importCloudJSON(id, data, label) {
+    const overlay = $('import-progress');
+    const fill = $('ip-bar-fill');
+    const sub = $('ip-sub');
+    const titleEl = $('ip-title');
+    const title = (data.book || data.title || label || '未命名').trim();
+    const author = (data.author || '').trim();
+    const chapters = (data.chapters || []).map((ch, i) => ({
+      title: (ch.title || '').trim() || `第 ${i + 1} 章`,
+      paras: (ch.paragraphs || []).map(t => ({ text: (typeof t === 'string' ? t : (t && t.text) || '').trim() })).filter(p => p.text),
+    })).filter(ch => ch.paras.length);
+
+    overlay.classList.remove('hidden');
+    titleEl.textContent = `正在同步《${title}》`;
+    fill.style.width = '4%';
+    sub.textContent = '整理章节…';
+
+    let totalChars = 0;
+    const chaptersMeta = chapters.map(ch => {
+      let len = 0, n = 0;
+      for (const p of ch.paras) if (p.text) { len += p.text.length; n++; }
+      len += Math.max(0, n - 1);
+      totalChars += len;
+      return { title: ch.title, charLen: len };
+    });
+
+    for (let i = 0; i < chapters.length; i++) {
+      await DB.putChapter({ id: `${id}:${i}`, bookId: id, idx: i, paras: chapters[i].paras });
+      fill.style.width = `${10 + Math.round(80 * (i + 1) / chapters.length)}%`;
+      sub.textContent = `章节 ${i + 1}/${chapters.length}`;
+      if (i % 20 === 0) await new Promise(r => setTimeout(r, 0));
+    }
+
+    fill.style.width = '93%';
+    sub.textContent = '生成封面…';
+    const cover = await generateCover(title, author);
+
+    const book = {
+      id, title, author, format: 'json', size: data.size || 0,
+      addedAt: Date.now(), lastReadAt: Date.now(), totalChars,
+      chaptersMeta, progress: { chapter: 0, ratio: 0 }, bookmarks: [], highlights: [],
+      cover,
+    };
+    await DB.putBook(book);
+    overlay.classList.add('hidden');
+    return book;
+  }
+
+  // 启动时自动同步云书架：读取 cloud-books.json 清单，把未导入的书拉取入库
+  async function syncCloud() {
+    let manifest;
+    try {
+      const res = await fetch('cloud-books.json', { cache: 'no-store' });
+      if (!res.ok) return;
+      manifest = await res.json();
+    } catch (e) { return; } // 无云书架配置（本地开发）时静默跳过
+    const list = (manifest && manifest.books) || [];
+    if (!list.length) return;
+
+    let imported = 0, failed = 0;
+    for (const item of list) {
+      const id = cloudId(item.title || item.file);
+      if (await DB.getBook(id)) continue; // 已同步过则跳过
+      try {
+        const res = await fetch(item.file, { cache: 'no-store' });
+        if (!res.ok) throw new Error('HTTP ' + res.status);
+        const data = await res.json();
+        await importCloudJSON(id, data, item.title);
+        imported++;
+      } catch (e) {
+        console.error('云书架同步失败：', item.file, e);
+        failed++;
+      }
+    }
+    if (imported || failed) {
+      await refresh();
+      if (imported && !failed) toast(`云书架已就绪：《${list[0].title}》${imported > 1 ? ` 等 ${imported} 本` : ''}`);
+      else if (failed) toast(`云书架同步：${imported ? imported + ' 本成功，' : ''}${failed} 本失败`);
+    }
+  }
+
   /* ================= 绑定 ================= */
 
   function bind() {
@@ -287,5 +377,5 @@ const Library = (() => {
     window.addEventListener('reader-closed', refresh);
   }
 
-  return { bind, refresh, importFiles };
+  return { bind, refresh, importFiles, syncCloud };
 })();

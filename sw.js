@@ -1,7 +1,7 @@
 /* Service Worker — 应用外壳缓存（离线可用） */
 'use strict';
 
-const CACHE = 'yuedu-v1';
+const CACHE = 'yuedu-v2';
 const SHELL = [
   './',
   './index.html',
@@ -40,6 +40,20 @@ self.addEventListener('fetch', (e) => {
   if (req.method !== 'GET') return;
   const url = new URL(req.url);
   if (url.origin !== location.origin) return;
+
+  // 云书架数据：网络优先，失败回退缓存（保证电脑端新增书籍后手机能拉到）
+  if (/\/books\/.*\.json$/.test(url.pathname) || /cloud-books\.json$/.test(url.pathname)) {
+    e.respondWith(
+      fetch(req).then((res) => {
+        if (res && res.ok) {
+          const copy = res.clone();
+          caches.open(CACHE).then((c) => c.put(req, copy)).catch(() => {});
+        }
+        return res;
+      }).catch(() => caches.match(req))
+    );
+    return;
+  }
 
   // 导航请求：网络优先，失败回退缓存（保证更新后能拉到新版本）
   if (req.mode === 'navigate') {

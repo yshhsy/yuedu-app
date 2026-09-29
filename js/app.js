@@ -46,6 +46,8 @@ async function boot() {
   Library.bind();
   Reader.bind();
   await Library.refresh();
+  // 云书架自动同步：电脑端已部署的书，手机端首次打开自动拉取导入
+  await Library.syncCloud();
   if ('serviceWorker' in navigator) {
     navigator.serviceWorker.register('sw.js').catch(e => console.warn('SW 注册失败', e));
   }

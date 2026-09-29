@@ -1,0 +1,11 @@
+{
+  "version": 2,
+  "note": "云书架预置清单：电脑端添加书籍后，手机端打开 App 会自动同步导入。每本书的 JSON 结构见 books/ 目录。",
+  "books": [
+    {
+      "file": "books/丰饶之海.json",
+      "title": "丰饶之海",
+      "author": "三岛由纪夫"
+    }
+  ]
+}
