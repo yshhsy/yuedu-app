@@ -1,0 +1,5 @@
+sample.epub
+sample.txt
+*.epub
+!keep
+.DS_Store

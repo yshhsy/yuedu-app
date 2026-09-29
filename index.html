@@ -1,0 +1,221 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<meta name="theme-color" content="#f6f6f4">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<title>阅读</title>
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icons/icon-32.png" type="image/png">
+<link rel="apple-touch-icon" href="icons/icon-180.png">
+<link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+<div id="app">
+
+  <!-- ======================= 书架页 ======================= -->
+  <section id="library-screen" class="screen">
+    <header class="lib-header">
+      <div class="lib-title">
+        <h1>书架</h1>
+        <span id="today-minutes" class="today-minutes hidden"></span>
+      </div>
+      <button id="btn-import" class="btn-ghost" aria-label="导入书籍">
+        <svg viewBox="0 0 24 24"><path d="M12 5v14m-7-7h14" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/></svg>
+        <span>导入</span>
+      </button>
+    </header>
+
+    <div id="bookshelf" class="bookshelf"></div>
+
+    <div id="empty-state" class="empty hidden">
+      <div class="empty-illustration">
+        <svg viewBox="0 0 120 120" fill="none">
+          <rect x="18" y="26" width="84" height="64" rx="8" fill="#e7ecfb"/>
+          <rect x="18" y="26" width="84" height="10" rx="5" fill="#d3ddf6"/>
+          <path d="M42 52h36M42 64h24" stroke="#aebcf0" stroke-width="4" stroke-linecap="round"/>
+          <rect x="56" y="84" width="8" height="16" rx="3" fill="#ffb454"/>
+        </svg>
+      </div>
+      <h2>书架空空如也</h2>
+      <p>导入一本 TXT 或 EPUB 电子书，开始你的阅读之旅</p>
+      <button id="btn-import-empty" class="btn-primary">导入书籍</button>
+    </div>
+  </section>
+
+  <!-- ======================= 阅读页 ======================= -->
+  <section id="reader-screen" class="screen hidden">
+    <!-- 顶部栏 -->
+    <div id="reader-topbar" class="reader-bar">
+      <button id="btn-back" class="bar-btn" aria-label="返回">
+        <svg viewBox="0 0 24 24"><path d="M15 5l-7 7 7 7" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      </button>
+      <div class="bar-title">
+        <span id="reader-book-title" class="bt-book"></span>
+        <span id="reader-chapter-title" class="bt-chapter"></span>
+      </div>
+      <button id="btn-theme" class="bar-btn" aria-label="夜间模式">
+        <svg class="ic-moon" viewBox="0 0 24 24"><path d="M20 13.5A7.5 7.5 0 0 1 10.5 4 7.5 7.5 0 1 0 20 13.5z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/></svg>
+        <svg class="ic-sun hidden" viewBox="0 0 24 24"><circle cx="12" cy="12" r="4.2" fill="none" stroke="currentColor" stroke-width="2"/><path d="M12 3v2.5M12 18.5V21M3 12h2.5M18.5 12H21M5.6 5.6l1.8 1.8M16.6 16.6l1.8 1.8M18.4 5.6l-1.8 1.8M7.4 16.6l-1.8 1.8" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+      </button>
+      <button id="btn-bookmark" class="bar-btn" aria-label="书签">
+        <svg class="ic-bm-off" viewBox="0 0 24 24"><path d="M7 4h10a1 1 0 0 1 1 1v15l-6-4-6 4V5a1 1 0 0 1 1-1z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/></svg>
+        <svg class="ic-bm-on hidden" viewBox="0 0 24 24"><path d="M7 4h10a1 1 0 0 1 1 1v15l-6-4-6 4V5a1 1 0 0 1 1-1z" fill="#f2b33d" stroke="#f2b33d" stroke-width="2" stroke-linejoin="round"/></svg>
+      </button>
+    </div>
+
+    <!-- 正文区域 -->
+    <div id="reader-body">
+      <div id="reader-viewport">
+        <div id="reader-content"></div>
+      </div>
+      <div id="brightness-veil" class="hidden"></div>
+    </div>
+
+    <!-- 底部栏 -->
+    <div id="reader-bottombar" class="reader-bar">
+      <button id="btn-toc" class="bar-btn with-text" aria-label="目录">
+        <svg viewBox="0 0 24 24"><path d="M4 6h16M4 12h16M4 18h10" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/></svg>
+      </button>
+      <div class="progress-wrap">
+        <input type="range" id="progress-slider" min="0" max="100" step="0.1" value="0" aria-label="阅读进度">
+      </div>
+      <span id="progress-text" class="progress-text">0%</span>
+      <button id="btn-more" class="bar-btn with-text" aria-label="设置">
+        <svg viewBox="0 0 24 24"><text x="12" y="17.5" text-anchor="middle" font-size="12" font-weight="700" fill="currentColor" font-family="inherit">Aa</text></svg>
+      </button>
+    </div>
+
+    <!-- 划词浮层 -->
+    <div id="sel-popup" class="sel-popup hidden">
+      <button id="sel-highlight" class="sel-btn">
+        <svg viewBox="0 0 24 24"><path d="M6 15l7.5-7.5a2.1 2.1 0 0 1 3 3L9 20.5 5 21.5l1-4z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/></svg>
+        <span>划线</span>
+      </button>
+      <button id="sel-copy" class="sel-btn">
+        <svg viewBox="0 0 24 24"><rect x="8" y="8" width="11" height="11" rx="2" fill="none" stroke="currentColor" stroke-width="2"/><path d="M16 8V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h2" fill="none" stroke="currentColor" stroke-width="2"/></svg>
+        <span>复制</span>
+      </button>
+    </div>
+  </section>
+
+  <!-- ======================= 目录抽屉 ======================= -->
+  <div id="toc-panel" class="sheet hidden" role="dialog" aria-label="目录">
+    <div class="sheet-head">
+      <h3>目录</h3>
+      <button class="sheet-close" data-close="toc-panel" aria-label="关闭">
+        <svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/></svg>
+      </button>
+    </div>
+    <div id="toc-list" class="toc-list"></div>
+  </div>
+
+  <!-- ======================= 设置抽屉 ======================= -->
+  <div id="settings-panel" class="sheet hidden" role="dialog" aria-label="阅读设置">
+    <div class="sheet-head">
+      <h3>阅读设置</h3>
+      <button class="sheet-close" data-close="settings-panel" aria-label="关闭">
+        <svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/></svg>
+      </button>
+    </div>
+    <div class="setting-group">
+      <div class="setting-row">
+        <span class="setting-label">字号</span>
+        <button id="font-minus" class="mini-btn">A-</button>
+        <span id="font-size-val" class="setting-val">17</span>
+        <button id="font-plus" class="mini-btn">A+</button>
+      </div>
+      <div class="setting-row">
+        <span class="setting-label">行距</span>
+        <input type="range" id="lineheight-slider" min="1.3" max="2.4" step="0.05" value="1.8">
+      </div>
+      <div class="setting-row">
+        <span class="setting-label">字体</span>
+        <div id="font-family-options" class="seg-options">
+          <button data-font="sans" class="seg-btn">默认</button>
+          <button data-font="song" class="seg-btn" style="font-family:'Songti SC','Noto Serif CJK SC','SimSun',serif">宋体</button>
+          <button data-font="hei" class="seg-btn" style="font-family:'PingFang SC','Noto Sans CJK SC','Microsoft YaHei',sans-serif">黑体</button>
+          <button data-font="kai" class="seg-btn" style="font-family:'Kaiti SC','KaiTi','STKaiti',serif">楷体</button>
+        </div>
+      </div>
+      <div class="setting-row">
+        <span class="setting-label">主题</span>
+        <div id="theme-options" class="theme-options">
+          <button data-theme="day" class="theme-swatch sw-day" aria-label="白天"></button>
+          <button data-theme="sepia" class="theme-swatch sw-sepia" aria-label="米黄"></button>
+          <button data-theme="green" class="theme-swatch sw-green" aria-label="护眼"></button>
+          <button data-theme="night" class="theme-swatch sw-night" aria-label="夜间"></button>
+        </div>
+      </div>
+      <div class="setting-row">
+        <span class="setting-label">亮度</span>
+        <input type="range" id="brightness-slider" min="30" max="100" step="1" value="100">
+      </div>
+    </div>
+  </div>
+
+  <!-- ======================= 导入面板 ======================= -->
+  <div id="import-panel" class="sheet hidden" role="dialog" aria-label="导入书籍">
+    <div class="sheet-head">
+      <h3>导入书籍</h3>
+      <button class="sheet-close" data-close="import-panel" aria-label="关闭">
+        <svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/></svg>
+      </button>
+    </div>
+    <div class="import-body">
+      <button id="import-file-btn" class="import-card">
+        <svg viewBox="0 0 24 24"><path d="M12 3v12m0 0l-4.5-4.5M12 15l4.5-4.5M4 18.5h16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        <div><strong>从文件导入</strong><span>支持 TXT / EPUB，可多选</span></div>
+      </button>
+      <button id="import-url-btn" class="import-card">
+        <svg viewBox="0 0 24 24"><path d="M9.5 14.5l5-5M7.5 11.5l-2 2a3.5 3.5 0 0 0 5 5l2-2M16.5 12.5l2-2a3.5 3.5 0 0 0-5-5l-2 2" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        <div><strong>从链接导入</strong><span>粘贴 .txt/.epub 直链（需允许跨域）</span></div>
+      </button>
+    </div>
+    <div id="import-url-form" class="import-url-form hidden">
+      <input type="url" id="import-url-input" placeholder="https://.../book.txt">
+      <button id="import-url-go" class="btn-primary">导入</button>
+    </div>
+  </div>
+
+  <!-- ======================= 书籍操作面板 ======================= -->
+  <div id="action-sheet" class="sheet hidden" role="dialog" aria-label="书籍操作">
+    <div class="sheet-head"><h3 id="action-title"></h3><span></span></div>
+    <div class="action-list">
+      <button id="act-continue" class="action-item">继续阅读</button>
+      <button id="act-restart" class="action-item">从头开始</button>
+      <button id="act-delete" class="action-item danger">删除本书</button>
+      <button class="action-item cancel" data-close="action-sheet">取消</button>
+    </div>
+  </div>
+
+  <!-- 背景遮罩 -->
+  <div id="backdrop" class="backdrop hidden"></div>
+
+  <!-- 导入进度浮层 -->
+  <div id="import-progress" class="import-progress hidden">
+    <div class="ip-card">
+      <div class="ip-title" id="ip-title">正在导入…</div>
+      <div class="ip-bar"><div id="ip-bar-fill" class="ip-bar-fill"></div></div>
+      <div class="ip-sub" id="ip-sub"></div>
+    </div>
+  </div>
+
+  <!-- Toast -->
+  <div id="toast" class="toast hidden"></div>
+
+  <input type="file" id="file-input" accept=".txt,.epub,text/plain,application/epub+zip" multiple hidden>
+</div>
+
+<script src="lib/jszip.min.js"></script>
+<script src="js/db.js"></script>
+<script src="js/parser.js"></script>
+<script src="js/engine.js"></script>
+<script src="js/library.js"></script>
+<script src="js/reader.js"></script>
+<script src="js/app.js"></script>
+</body>
+</html>
