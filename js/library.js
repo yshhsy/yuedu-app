@@ -420,6 +420,14 @@ const Library = (() => {
     const list = (manifest && manifest.books) || [];
     if (!list.length) return;
 
+    // 迁移：旧版整本《丰饶之海》已拆分为四卷，删除老用户本地的旧整本
+    const legacyId = cloudId('丰饶之海');
+    const legacy = await DB.getBook(legacyId);
+    if (legacy && legacy.format === 'json') {
+      await DB.deleteBook(legacyId);
+      YueduToast('《丰饶之海》已拆分为四卷');
+    }
+
     // 找出本地尚未同步的书
     const pending = [];
     for (const item of list) {
