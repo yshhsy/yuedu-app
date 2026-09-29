@@ -420,11 +420,19 @@ const Library = (() => {
     const list = (manifest && manifest.books) || [];
     if (!list.length) return;
 
-    // 迁移：旧版整本《丰饶之海》已拆分为四卷，删除老用户本地的旧整本
-    const legacyId = cloudId('丰饶之海');
-    const legacy = await DB.getBook(legacyId);
-    if (legacy && legacy.format === 'json') {
-      await DB.deleteBook(legacyId);
+    // 迁移：① 旧版整本《丰饶之海》→ 四卷；② 四卷书名加"丰饶之海·"前缀
+    // 这两批旧书 id 已废弃，删除以免与新书重复
+    const deprecated = ['丰饶之海', '春雪', '奔马', '晓寺', '天人五衰'].map(t => cloudId(t));
+    let migrated = false;
+    for (const id of deprecated) {
+      const b = await DB.getBook(id);
+      if (b && b.format === 'json') {
+        await DB.deleteBook(id);
+        migrated = true;
+      }
+    }
+    if (migrated) {
+      await refresh(); // 立即刷新，避免旧卡片残留在书架上
       YueduToast('《丰饶之海》已拆分为四卷');
     }
 

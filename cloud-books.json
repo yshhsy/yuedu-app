@@ -1,29 +1,29 @@
 {
-  "version": 5,
-  "note": "云书架预置清单：电脑端添加书籍后，手机端打开 App 会自动同步导入。每本书的 JSON 结构见 books/ 目录；cover 为同源实体书封面（随站部署，无防盗链问题）。丰饶之海已拆分为四卷独立书籍。",
+  "version": 6,
+  "note": "云书架预置清单：电脑端添加书籍后，手机端打开 App 会自动同步导入。每本书的 JSON 结构见 books/ 目录；cover 为同源实体书封面（随站部署，无防盗链问题）。丰饶之海拆分为四卷（春雪/奔马/晓寺/天人五衰）。",
   "books": [
     {
       "file": "books/丰饶之海-春雪.json",
       "cover": "books/丰饶之海-春雪-cover.jpg",
-      "title": "春雪",
+      "title": "丰饶之海·春雪",
       "author": "三岛由纪夫"
     },
     {
       "file": "books/丰饶之海-奔马.json",
       "cover": "books/丰饶之海-奔马-cover.jpg",
-      "title": "奔马",
+      "title": "丰饶之海·奔马",
       "author": "三岛由纪夫"
     },
     {
       "file": "books/丰饶之海-晓寺.json",
       "cover": "books/丰饶之海-晓寺-cover.jpg",
-      "title": "晓寺",
+      "title": "丰饶之海·晓寺",
       "author": "三岛由纪夫"
     },
     {
       "file": "books/丰饶之海-天人五衰.json",
       "cover": "books/丰饶之海-天人五衰-cover.jpg",
-      "title": "天人五衰",
+      "title": "丰饶之海·天人五衰",
       "author": "三岛由纪夫"
     },
     {
