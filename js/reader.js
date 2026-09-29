@@ -61,6 +61,9 @@ const Reader = (() => {
   function applySettings() {
     const scr = $(els.screen);
     scr.setAttribute('data-theme', S.theme);
+    // 夜间/白昼同步浏览器系统栏颜色（灵动岛周围不突兀）
+    const meta = document.querySelector('meta[name="theme-color"]');
+    if (meta) meta.setAttribute('content', S.theme === 'night' ? '#141414' : '#f6f6f4');
     const c = cnt();
     c.style.setProperty('--rd-fs', S.fontSize + 'px');
     c.style.setProperty('--rd-lh', S.lineHeight);
@@ -115,11 +118,14 @@ const Reader = (() => {
 
   async function close() {
     if (!book) return;
-    await flushProgress();
-    await flushReadingTime();
+    const b = book;
+    book = null;                     // 立即置空：后续重复点击直接忽略，也阻断后台继续读写
+    try {
+      book = b; await flushProgress();
+    } catch (e) { /* 存进度失败不阻断返回 */ }
+    book = null;
     $(els.screen).classList.add('hidden');
     closeSheets();
-    book = null;
     window.dispatchEvent(new CustomEvent('reader-closed'));
   }
 
@@ -473,7 +479,11 @@ const Reader = (() => {
       cum += m.charLen;
     });
     const cur = list.querySelector('.toc-item.current');
-    if (cur) cur.scrollIntoView({ block: 'center' });
+    // 只在目录列表自身内滚动定位，不牵动外层阅读容器（避免打开目录时阅读页闪跳）
+    if (cur) {
+      const listEl = list;
+      listEl.scrollTop = cur.offsetTop - listEl.clientHeight / 2 + cur.offsetHeight / 2;
+    }
   }
 
   /* ================= 划词 / 划线 ================= */

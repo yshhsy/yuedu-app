@@ -18,6 +18,20 @@ const Library = (() => {
   const $ = (id) => document.getElementById(id);
   let objectUrls = [];
 
+  // Blob → dataURL 字符串（iOS Safari 的 IDB 有 Blob 往返损坏 bug：
+  // 记录整条重写后 Blob 可能变成坏对象，导致封面丢失甚至渲染崩溃。
+  // 封面一律存 dataURL 字符串，结构化克隆永远安全）
+  function blobToDataURL(blob) {
+    return new Promise((resolve) => {
+      try {
+        const fr = new FileReader();
+        fr.onload = () => resolve(typeof fr.result === 'string' ? fr.result : null);
+        fr.onerror = () => resolve(null);
+        fr.readAsDataURL(blob);
+      } catch (e) { resolve(null); }
+    });
+  }
+
   function revokeUrls() {
     objectUrls.forEach(u => URL.revokeObjectURL(u));
     objectUrls = [];
@@ -37,12 +51,17 @@ const Library = (() => {
   }
 
   function coverHTML(b) {
-    if (b.cover) {
-      const url = URL.createObjectURL(b.cover);
-      objectUrls.push(url);
-      return `<img src="${url}" alt="${Engine.esc(b.title)}">`;
+    if (typeof b.cover === 'string' && b.cover) {
+      return `<img src="${b.cover}" alt="${Engine.esc(b.title)}">`;
     }
-    // 无封面时用文字兜底（导入时一般已生成，此处为保险）
+    if (b.cover instanceof Blob) {
+      try {
+        const url = URL.createObjectURL(b.cover);
+        objectUrls.push(url);
+        return `<img src="${url}" alt="${Engine.esc(b.title)}">`;
+      } catch (e) { /* 兼容旧数据，坏封面走兜底 */ }
+    }
+    // 无封面或封面损坏时用文字兜底（导入时一般已生成，此处为保险）
     return `<div class="cover-fallback"><span class="cf-title">${Engine.esc(b.title || '')}</span><span class="cf-author">${Engine.esc(b.author || '')}</span></div>`;
   }
 
@@ -87,8 +106,18 @@ const Library = (() => {
   /* ================= 渲染 ================= */
 
   async function refresh() {
-    revokeUrls();
     const books = await DB.allBooks();
+    // 存量迁移：Blob 封面 → dataURL 字符串（一次性，写入后永久修复）
+    for (const b of books) {
+      if (b.cover instanceof Blob) {
+        const du = await blobToDataURL(b.cover);
+        if (du) {
+          b.cover = du;
+          try { await DB.putBook(b); } catch (e) { console.warn('封面迁移写入失败', e); }
+        }
+      }
+    }
+    revokeUrls();
     const shelf = $('bookshelf');
     shelf.innerHTML = '';
     $('empty-state').classList.toggle('hidden', books.length > 0);
@@ -191,6 +220,7 @@ const Library = (() => {
       show('生成封面…', 97);
       cover = await generateCover(parsed.title, parsed.author);
     }
+    if (cover instanceof Blob) cover = await blobToDataURL(cover); // 统一存 dataURL 字符串
 
     const book = {
       id, title: parsed.title, author: parsed.author, format: isEpub ? 'epub' : 'txt',
@@ -250,7 +280,7 @@ const Library = (() => {
       ctx.roundRect(w / 2 - 8, h - 130, 16, 56, 4);
       ctx.fill();
       const blob = await new Promise(r => canvas.toBlob(r, 'image/jpeg', 0.82));
-      return blob;
+      return await blobToDataURL(blob);
     } catch (e) { return null; }
   }
 
@@ -386,6 +416,7 @@ const Library = (() => {
     // 封面：优先使用云书架随站部署的实体书封面，失败再生成
     set(92, '下载封面…');
     let cover = await fetchCover(coverUrl);
+    if (cover instanceof Blob) cover = await blobToDataURL(cover);
     if (!cover) { set(94, '生成封面…'); cover = await generateCover(title, author); }
 
     const book = {
