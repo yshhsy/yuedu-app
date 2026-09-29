@@ -288,23 +288,85 @@ const Library = (() => {
     } catch (e) { return null; }
   }
 
+  // 流式下载书籍 JSON，按真实字节进度回调（0→35%），避免"卡在最开始"
+  async function fetchBookJSON(url, onProgress) {
+    const res = await fetch(url, { cache: 'no-store' });
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    const total = parseInt(res.headers.get('content-length') || '0', 10);
+    let received = 0, text = '';
+    if (res.body && total > 0) {
+      const reader = res.body.getReader();
+      const dec = new TextDecoder('utf-8');
+      for (;;) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        received += value.length;
+        text += dec.decode(value, { stream: true });
+        onProgress(4 + Math.round(31 * received / total), '下载中');
+      }
+      text += dec.decode();
+    } else {
+      onProgress(8, '下载中');
+      text = await res.text();
+    }
+    onProgress(35, '解析书籍…');
+    return JSON.parse(text);
+  }
+
+  // 云同步的"下载中"占位卡片：封面位置一个圆形进度环
+  const RING_R = 15.5;
+  const RING_C = 2 * Math.PI * RING_R;
+
+  function makeDownloadCard(item) {
+    const el = document.createElement('div');
+    el.className = 'book-card downloading';
+    let h1 = 0;
+    for (const ch of (item.title || 'x')) h1 = (h1 * 31 + (ch.codePointAt(0) || 0)) >>> 0;
+    const [c1, c2] = PALETTES[h1 % PALETTES.length];
+    el.innerHTML = `
+      <div class="book-cover dl-cover" style="background:linear-gradient(135deg,${c1},${c2})">
+        <svg class="dl-ring" viewBox="0 0 36 36" aria-hidden="true">
+          <circle class="dl-bg" cx="18" cy="18" r="${RING_R}"/>
+          <circle class="dl-fg" cx="18" cy="18" r="${RING_R}"/>
+        </svg>
+        <span class="dl-pct">0%</span>
+        <span class="dl-label">等待下载</span>
+      </div>
+      <div class="book-info">
+        <div class="b-title">${Engine.esc(item.title || '未命名')}</div>
+        <div class="b-author">${Engine.esc(item.author || '')}</div>
+      </div>`;
+    return el;
+  }
+
+  function updateDownloadCard(card, pct, label, fail) {
+    const fg = card.querySelector('.dl-fg');
+    const pctEl = card.querySelector('.dl-pct');
+    const labelEl = card.querySelector('.dl-label');
+    const p = Math.max(0, Math.min(100, pct));
+    if (fg) {
+      fg.style.strokeDasharray = RING_C.toFixed(2);
+      fg.style.strokeDashoffset = (RING_C * (1 - p / 100)).toFixed(2);
+    }
+    if (pctEl) pctEl.textContent = fail ? '×' : Math.round(p) + '%';
+    if (labelEl) {
+      labelEl.textContent = fail ? '下载失败' : (label || '');
+      labelEl.classList.toggle('dl-failed', !!fail);
+    }
+  }
+
   // 解析 {book, author, chapters:[{number,title,paragraphs:[str...]}]} → {title, author, chapters:[{title, paras}]}
-  async function importCloudJSON(id, data, label, coverUrl) {
-    const overlay = $('import-progress');
-    const fill = $('ip-bar-fill');
-    const sub = $('ip-sub');
-    const titleEl = $('ip-title');
+  // onProgress(pct, label)：驱动封面上的圆圈进度（35→100）
+  async function importCloudJSON(id, data, label, coverUrl, onProgress) {
+    const set = typeof onProgress === 'function' ? onProgress : () => {};
     const title = (data.book || data.title || label || '未命名').trim();
     const author = (data.author || '').trim();
     const chapters = (data.chapters || []).map((ch, i) => ({
       title: (ch.title || '').trim() || `第 ${i + 1} 章`,
       paras: (ch.paragraphs || []).map(t => ({ text: (typeof t === 'string' ? t : (t && t.text) || '').trim() })).filter(p => p.text),
     })).filter(ch => ch.paras.length);
-    const set = (pct, msg) => { fill.style.width = `${pct}%`; sub.textContent = msg; };
 
-    overlay.classList.remove('hidden');
-    titleEl.textContent = `正在同步《${title}》`;
-    set(6, '整理章节…');
+    set(36, '整理章节…');
 
     let totalChars = 0;
     const chaptersMeta = chapters.map(ch => {
@@ -317,7 +379,7 @@ const Library = (() => {
 
     for (let i = 0; i < chapters.length; i++) {
       await DB.putChapter({ id: `${id}:${i}`, bookId: id, idx: i, paras: chapters[i].paras });
-      set(10 + Math.round(80 * (i + 1) / chapters.length), `保存章节 ${i + 1}/${chapters.length}`);
+      set(40 + Math.round(50 * (i + 1) / chapters.length), `保存章节 ${i + 1}/${chapters.length}`);
       if (i % 20 === 0) await new Promise(r => setTimeout(r, 0));
     }
 
@@ -334,8 +396,6 @@ const Library = (() => {
     };
     await DB.putBook(book);
     set(100, '完成');
-    await new Promise(r => setTimeout(r, 350)); // 让"完成"有视觉停留
-    overlay.classList.add('hidden');
     return book;
   }
 
@@ -360,30 +420,43 @@ const Library = (() => {
     const list = (manifest && manifest.books) || [];
     if (!list.length) return;
 
-    let imported = 0, failed = 0;
+    // 找出本地尚未同步的书
+    const pending = [];
     for (const item of list) {
       const id = cloudId(item.title || item.file);
-      if (await DB.getBook(id)) continue; // 已同步过则跳过
+      if (await DB.getBook(id)) continue;
+      pending.push({ id, item });
+    }
+    if (!pending.length) return;
+
+    // 先在书架上铺好"下载中"占位卡片（每本封面一个圆圈），再逐本下载
+    const shelf = $('bookshelf');
+    $('empty-state').classList.add('hidden');
+    const states = new Map();
+    for (const p of pending) {
+      const card = makeDownloadCard(p.item);
+      shelf.appendChild(card);
+      states.set(p.id, { card });
+    }
+
+    let imported = 0, failed = 0;
+    for (const p of pending) {
+      const { card } = states.get(p.id);
+      const set = (pct, label) => updateDownloadCard(card, pct, label);
       try {
-        // 下载阶段可视化
-        const overlay = $('import-progress');
-        overlay.classList.remove('hidden');
-        $('ip-title').textContent = `正在下载《${item.title || ''}》`;
-        $('ip-bar-fill').style.width = '2%';
-        $('ip-sub').textContent = '连接服务器…';
-        const res = await fetch(item.file, { cache: 'no-store' });
-        if (!res.ok) throw new Error('HTTP ' + res.status);
-        $('ip-sub').textContent = '解析书籍…';
-        const data = await res.json();
-        await importCloudJSON(id, data, item.title, item.cover || data.cover);
+        set(2, '连接服务器…');
+        const data = await fetchBookJSON(p.item.file, set); // 0→35，真实字节进度
+        await importCloudJSON(p.id, data, p.item.title, p.item.cover || data.cover, set); // 35→100
+        card.replaceWith(makeCard(await DB.getBook(p.id)));
         imported++;
       } catch (e) {
-        console.error('云书架同步失败：', item.file, e);
+        console.error('云书架同步失败：', p.item.file, e);
         failed++;
+        updateDownloadCard(card, 0, '下载失败', true);
       }
     }
     if (imported || failed) {
-      await refresh();
+      await refresh(); // 清掉失败占位卡片、校正顺序
       if (imported && !failed) YueduToast(`云书架已就绪：《${list[0].title}》${imported > 1 ? ` 等 ${imported} 本` : ''}`);
       else if (failed) YueduToast(`云书架同步：${imported ? imported + ' 本成功，' : ''}${failed} 本失败`);
     }
