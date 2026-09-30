@@ -1,7 +1,7 @@
 /* Service Worker — 应用外壳缓存（离线可用） */
 'use strict';
 
-const CACHE = 'yuedu-v17';
+const CACHE = 'yuedu-v18';
 const SHELL = [
   './',
   './index.html',
