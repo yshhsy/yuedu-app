@@ -417,8 +417,11 @@ const Reader = (() => {
     return (book.bookmarks || []).find(b => b.chapter === curChapter && Math.abs(b.offset - off) < BOOKMARK_RADIUS);
   }
 
+  let bmIconState = null; // null=未知，true=有书签，false=无书签
   function updateBookmarkIcon() {
-    const has = currentBookmark();
+    const has = !!currentBookmark();
+    if (has === bmIconState) return; // 状态未变不碰 DOM，避免滚动时每帧重绘导致图标闪烁
+    bmIconState = has;
     $(els.bookmark).querySelector('.ic-bm-on').classList.toggle('hidden', !has);
     $(els.bookmark).querySelector('.ic-bm-off').classList.toggle('hidden', has);
   }

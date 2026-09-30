@@ -142,6 +142,8 @@ button { font-family:inherit; border:none; background:none; cursor:pointer; colo
   padding: calc(env(safe-area-inset-top,0px) + 8px) 14px;
   background:var(--rd-bar); backdrop-filter:blur(14px); -webkit-backdrop-filter:blur(14px);
   transition:opacity .28s, transform .28s;
+  /* 强制独立合成层：修复 iOS 惯性滚动时 backdrop-filter 层内图标闪烁 */
+  transform:translateZ(0); will-change:transform;
 }
 .reader-topbar { top:0; }
 .reader-bottombar { bottom:0; padding-top:10px; padding-bottom:calc(env(safe-area-inset-bottom,0px) + 10px); border-top:1px solid var(--rd-line); }
