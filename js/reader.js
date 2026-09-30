@@ -70,6 +70,7 @@ const Reader = (() => {
     c.style.setProperty('--rd-fs', S.fontSize + 'px');
     c.style.setProperty('--rd-lh', S.lineHeight);
     c.style.setProperty('--rd-font', Engine.FONT_STACKS[S.fontFamily]);
+    ensureWebFont(S.fontFamily); // 持久化的宋体/楷体设置在重开 App 后也要确保字体已加载
     const veil = $(els.veil);
     veil.style.opacity = ((100 - S.brightness) / 100 * 0.6).toFixed(2);
     veil.classList.toggle('hidden', S.brightness >= 100);
@@ -80,6 +81,25 @@ const Reader = (() => {
     document.querySelectorAll('#font-family-options .seg-btn').forEach(b => b.classList.toggle('active', b.dataset.font === S.fontFamily));
     document.querySelectorAll('#theme-options .theme-swatch').forEach(b => b.classList.toggle('active', b.dataset.theme === S.theme));
     $('brightness-slider').value = S.brightness;
+  }
+
+  /* ================= 内嵌字体懒加载 =================
+     iOS 无 Songti SC/Kaiti SC 等系统字体，宋体/楷体改用内嵌子集 woff2
+     （按全部书籍字符集子集化，选中时才下载，SW 缓存后离线可用） */
+  const WEB_FONTS = {
+    song: { family: 'Yuedu Serif', file: 'fonts/NotoSerifSC-sub.woff2' },
+    kai:  { family: 'Yuedu Kai',   file: 'fonts/LXGWWenKai-sub.woff2' },
+  };
+  const webFontState = {}; // undefined=未加载 1=加载中 2=已就绪 0=失败可重试
+  function ensureWebFont(key) {
+    const def = WEB_FONTS[key];
+    if (!def || webFontState[key] || typeof FontFace === 'undefined') return;
+    webFontState[key] = 1;
+    const ff = new FontFace(def.family, `url(${def.file})`, { display: 'swap' });
+    ff.load().then((f) => {
+      document.fonts.add(f);
+      webFontState[key] = 2;
+    }).catch(() => { webFontState[key] = 0; }); // 失败则回退系统字体栈，可重试
   }
 
   function setSetting(key, val, rerender = true) {
@@ -742,7 +762,8 @@ const Reader = (() => {
     $('brightness-slider').addEventListener('change', () => { saveSettings(); });
     document.querySelectorAll('#font-family-options .seg-btn').forEach(b => {
       // 字体切换只改 CSS 变量，浏览器自动重排，无需重建 DOM（避免正文闪跳）
-      b.addEventListener('click', () => setSetting('fontFamily', b.dataset.font, false));
+      // 宋体/楷体需先懒加载内嵌 web 字体（iOS 缺系统字体）
+      b.addEventListener('click', () => { ensureWebFont(b.dataset.font); setSetting('fontFamily', b.dataset.font, false); });
     });
     document.querySelectorAll('#theme-options .theme-swatch').forEach(b => {
       b.addEventListener('click', () => setSetting('theme', b.dataset.theme, false));

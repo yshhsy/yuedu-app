@@ -11,9 +11,10 @@ const Engine = (() => {
   // 部分浏览器只认其中一种写法，缺一种就会出现"选了宋体/楷体但渲染不变"的问题。
   const FONT_STACKS = {
     sans: `-apple-system,BlinkMacSystemFont,"Helvetica Neue","PingFang SC","Hiragino Sans GB","Microsoft YaHei","Noto Sans CJK SC","Source Han Sans SC",sans-serif`,
-    song: `"Songti SC","STSongti-SC-Regular","STSong","SimSun","NSimSun","Source Han Serif SC","Noto Serif CJK SC","Noto Serif SC",serif`,
+    // 宋体/楷体首选内嵌 web 字体（iOS 无 Songti SC/Kaiti SC 等系统字体，见 reader.js 懒加载）
+    song: `"Yuedu Serif","Songti SC","STSongti-SC-Regular","STSong","SimSun","NSimSun","Source Han Serif SC","Noto Serif CJK SC","Noto Serif SC",serif`,
     hei:  `"PingFang SC","Heiti SC","Hiragino Sans GB","Microsoft YaHei","Source Han Sans SC","Noto Sans CJK SC",sans-serif`,
-    kai:  `"Kaiti SC","STKaiti-SC-Regular","STKaiti","KaiTi","BiauKai","AR PL UKai CN",serif`,
+    kai:  `"Yuedu Kai","Kaiti SC","STKaiti-SC-Regular","STKaiti","KaiTi","BiauKai","AR PL UKai CN",serif`,
   };
 
   function esc(s) {
